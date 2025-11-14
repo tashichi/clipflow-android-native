@@ -266,7 +266,7 @@ fun CameraHeaderView(
                     )
             ) {
                 Icon(
-                    imageVector = Icons.Default.Cameraswitch,
+                    imageVector = Icons.Default.FlipCameraAndroid,
                     contentDescription = "Switch Camera",
                     tint = Color.White
                 )
@@ -344,7 +344,7 @@ fun CameraControlsView(
                     )
             ) {
                 Icon(
-                    imageVector = if (isTorchOn) Icons.Default.FlashlightOn else Icons.Default.FlashlightOff,
+                    imageVector = Icons.Default.Flashlight,
                     contentDescription = if (isTorchOn) "Turn off flashlight" else "Turn on flashlight",
                     tint = if (isTorchOn) Color.Yellow else Color.Gray,
                     modifier = Modifier.size(28.dp)
