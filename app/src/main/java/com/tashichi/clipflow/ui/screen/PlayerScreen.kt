@@ -323,10 +323,10 @@ fun PlayerHeaderView(
                         shape = CircleShape
                     )
             ) {
-                Icon(
-                    imageVector = Icons.Default.Download,
-                    contentDescription = "Export",
-                    tint = Color.White
+                Text(
+                    text = "📥",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White
                 )
             }
         }
@@ -487,11 +487,10 @@ fun PlaybackControlsView(
                     shape = CircleShape
                 )
         ) {
-            Icon(
-                imageVector = Icons.Default.SkipPrevious,
-                contentDescription = "Previous",
-                tint = Color.White,
-                modifier = Modifier.size(32.dp)
+            Text(
+                text = "⏮",
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White
             )
         }
 
@@ -507,12 +506,20 @@ fun PlaybackControlsView(
                     shape = CircleShape
                 )
         ) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                contentDescription = if (isPlaying) "Pause" else "Play",
-                tint = Color.White,
-                modifier = Modifier.size(40.dp)
-            )
+            if (isPlaying) {
+                Text(
+                    text = "⏸",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = Color.White
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = Color.White,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(40.dp))
@@ -527,11 +534,10 @@ fun PlaybackControlsView(
                     shape = CircleShape
                 )
         ) {
-            Icon(
-                imageVector = Icons.Default.SkipNext,
-                contentDescription = "Next",
-                tint = Color.White,
-                modifier = Modifier.size(32.dp)
+            Text(
+                text = "⏭",
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color.White
             )
         }
     }
