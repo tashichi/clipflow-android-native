@@ -2,6 +2,7 @@ package com.tashichi.clipflow.util
 
 import android.content.Context
 import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -13,6 +14,7 @@ import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import com.tashichi.clipflow.data.model.Project
 import com.tashichi.clipflow.data.model.SegmentTimeRange
@@ -72,7 +74,7 @@ class VideoComposer(private val context: Context) {
                 }
 
                 // MediaItem を作成
-                val mediaItem = MediaItem.fromUri(file.toURI())
+                val mediaItem = MediaItem.fromUri(Uri.fromFile(file))
 
                 // 動画のメタデータを取得
                 val retriever = MediaMetadataRetriever()
@@ -192,10 +194,9 @@ class VideoComposer(private val context: Context) {
                 launch(Dispatchers.IO) {
                     while (isActive) {
                         try {
-                            val progressHolder = transformer.getProgress(
-                                Transformer.ProgressState.NOT_STARTED
-                            )
-                            val progress = progressHolder.toFloat() / 100f
+                            val progressHolder = ProgressHolder()
+                            transformer.getProgress(progressHolder)
+                            val progress = progressHolder.progress / 100f
                             onProgress(progress)
 
                             // 完了したら監視終了
