@@ -1,6 +1,7 @@
 package com.tashichi.clipflow.ui.viewmodel
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -264,7 +265,7 @@ class PlayerViewModel : ViewModel() {
         val mediaItems = sortedSegments.mapNotNull { segment ->
             val file = File(context.filesDir, segment.uri)
             if (file.exists()) {
-                MediaItem.fromUri(file.toURI())
+                MediaItem.fromUri(Uri.fromFile(file))
             } else {
                 Log.w(TAG, "Segment file not found: ${segment.uri}")
                 null
@@ -309,7 +310,7 @@ class PlayerViewModel : ViewModel() {
             return
         }
 
-        val mediaItem = MediaItem.fromUri(file.toURI())
+        val mediaItem = MediaItem.fromUri(Uri.fromFile(file))
         player.setMediaItem(mediaItem)
         player.prepare()
 
