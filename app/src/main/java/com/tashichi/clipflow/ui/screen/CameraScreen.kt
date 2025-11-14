@@ -265,10 +265,10 @@ fun CameraHeaderView(
                         shape = CircleShape
                     )
             ) {
-                Icon(
-                    imageVector = Icons.Default.FlipCameraAndroid,
-                    contentDescription = "Switch Camera",
-                    tint = Color.White
+                Text(
+                    text = "🔄",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White
                 )
             }
         }
@@ -343,11 +343,10 @@ fun CameraControlsView(
                         shape = CircleShape
                     )
             ) {
-                Icon(
-                    imageVector = Icons.Default.Flashlight,
-                    contentDescription = if (isTorchOn) "Turn off flashlight" else "Turn on flashlight",
-                    tint = if (isTorchOn) Color.Yellow else Color.Gray,
-                    modifier = Modifier.size(28.dp)
+                Text(
+                    text = "💡",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color.Unspecified
                 )
             }
         } else {
