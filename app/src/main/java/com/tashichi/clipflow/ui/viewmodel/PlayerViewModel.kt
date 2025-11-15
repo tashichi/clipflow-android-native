@@ -9,7 +9,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.transformer.Composition
 import com.tashichi.clipflow.data.model.Project
 import com.tashichi.clipflow.data.model.SegmentTimeRange
 import com.tashichi.clipflow.data.model.VideoSegment
@@ -56,8 +55,8 @@ class PlayerViewModel : ViewModel() {
     // VideoComposer
     private var videoComposer: VideoComposer? = null
 
-    // Composition
-    private var composition: Composition? = null
+    // 統合ビデオファイル（真の Composition）
+    private var compositionFile: File? = null
 
     // セグメント時間範囲
     private var segmentTimeRanges: List<SegmentTimeRange> = emptyList()
@@ -216,16 +215,16 @@ class PlayerViewModel : ViewModel() {
     }
 
     /**
-     * Compositionを読み込んでプレイヤーにセット
+     * Compositionを読み込んでプレイヤーにセット（真の Composition 実装）
      *
      * iOS版参考: PlayerView.swift:858-941 (loadComposition)
      *
      * 処理フロー:
      * 1. ローディング状態を開始（isLoadingComposition = true）
-     * 2. createCompositionWithProgress() を呼び出し
+     * 2. createComposition() を呼び出して統合ビデオファイルを作成
      * 3. プログレスコールバックで進捗更新
      * 4. getSegmentTimeRanges() でセグメント時間範囲を取得
-     * 5. AVPlayerItemを作成し、AVPlayerにセット
+     * 5. 統合ファイルを1つのMediaItemとしてExoPlayerにセット
      * 6. ローディング完了（0.5秒後に非表示）
      */
     private fun loadComposition() {
@@ -238,29 +237,32 @@ class PlayerViewModel : ViewModel() {
                 _loadingProgress.value = 0f
                 _processedSegments.value = 0
 
-                Log.d(TAG, "Creating composition...")
+                Log.d(TAG, "Creating merged composition file...")
 
-                // Compositionを作成（進捗付き）
-                composition = composer.createComposition(currentProject) { processed, total ->
+                // 古いキャッシュファイルをクリーンアップ
+                cleanupOldCompositionCache()
+
+                // 統合ビデオファイルを作成（進捗付き）
+                compositionFile = composer.createComposition(currentProject) { processed, total ->
                     _processedSegments.value = processed
                     // 最大80%まで（iOS版の仕様に合わせる）
                     _loadingProgress.value = (processed.toFloat() / total.toFloat()) * 0.8f
                 }
 
-                if (composition == null) {
+                if (compositionFile == null || !compositionFile!!.exists()) {
                     _errorMessage.value = "Failed to create composition"
                     _isLoading.value = false
                     return@launch
                 }
 
-                Log.d(TAG, "Composition created successfully")
+                Log.d(TAG, "Composition file created: ${compositionFile!!.absolutePath} (${compositionFile!!.length()} bytes)")
 
                 // セグメント時間範囲を取得
                 segmentTimeRanges = composer.getSegmentTimeRanges(currentProject)
                 Log.d(TAG, "Segment time ranges: ${segmentTimeRanges.size}")
 
-                // プレイヤーにMediaItemsを設定（個別セグメントとして再生）
-                loadSegmentsToPlayer(currentProject)
+                // プレイヤーに統合ファイルを設定（1つのMediaItemとして再生）
+                loadCompositionToPlayer(compositionFile!!)
 
                 // 総再生時間を設定
                 val totalDuration = composer.getTotalDuration(currentProject)
@@ -283,7 +285,69 @@ class PlayerViewModel : ViewModel() {
     }
 
     /**
-     * セグメントをExoPlayerに読み込む
+     * 統合ビデオファイルをExoPlayerに読み込む（真の Composition 実装）
+     *
+     * @param compositionFile 統合ビデオファイル
+     */
+    private fun loadCompositionToPlayer(compositionFile: File) {
+        val player = _exoPlayer ?: return
+
+        Log.d(TAG, "Loading merged composition file to player...")
+        Log.d(TAG, "File: ${compositionFile.absolutePath} (${compositionFile.length()} bytes)")
+
+        try {
+            // 統合ファイルを1つのMediaItemとして設定
+            val mediaItem = MediaItem.fromUri(Uri.fromFile(compositionFile))
+            player.setMediaItem(mediaItem)
+
+            Log.d(TAG, "Preparing player...")
+            player.prepare()
+            Log.d(TAG, "Player prepared successfully with merged composition")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to prepare player with composition", e)
+            _errorMessage.value = "Failed to prepare player: ${e.message}"
+        }
+    }
+
+    /**
+     * 古い Composition キャッシュファイルをクリーンアップ
+     *
+     * 現在のプロジェクト以外の古いキャッシュファイルを削除してストレージを節約
+     */
+    private fun cleanupOldCompositionCache() {
+        val context = _context ?: return
+        val currentProject = _project.value ?: return
+
+        try {
+            val cacheDir = File(context.cacheDir, "compositions")
+            if (!cacheDir.exists()) {
+                return
+            }
+
+            val currentProjectPrefix = "composition_${currentProject.id}_"
+            val files = cacheDir.listFiles() ?: return
+
+            var deletedCount = 0
+            files.forEach { file ->
+                // 現在のプロジェクト以外のファイルを削除
+                if (!file.name.startsWith(currentProjectPrefix) && file.name.startsWith("composition_")) {
+                    if (file.delete()) {
+                        deletedCount++
+                        Log.d(TAG, "Deleted old composition cache: ${file.name}")
+                    }
+                }
+            }
+
+            if (deletedCount > 0) {
+                Log.d(TAG, "Cleaned up $deletedCount old composition cache files")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to cleanup composition cache", e)
+        }
+    }
+
+    /**
+     * セグメントをExoPlayerに読み込む（フォールバック用 - 個別再生モード）
      *
      * @param project プロジェクト
      */
@@ -291,7 +355,7 @@ class PlayerViewModel : ViewModel() {
         val context = _context ?: return
         val player = _exoPlayer ?: return
 
-        Log.d(TAG, "Loading segments to player...")
+        Log.d(TAG, "Loading segments to player (fallback mode)...")
 
         val sortedSegments = project.getSortedSegments()
         Log.d(TAG, "Total segments to load: ${sortedSegments.size}")
@@ -639,7 +703,19 @@ class PlayerViewModel : ViewModel() {
         super.onCleared()
         _exoPlayer?.release()
         _exoPlayer = null
-        composition = null
+
+        // 統合ファイルのキャッシュをクリーンアップ（オプション）
+        compositionFile?.let { file ->
+            try {
+                if (file.exists()) {
+                    // file.delete() // 必要に応じてコメントアウトを解除
+                    Log.d(TAG, "Composition file retained: ${file.absolutePath}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to cleanup composition file", e)
+            }
+        }
+        compositionFile = null
         segmentTimeRanges = emptyList()
         Log.d(TAG, "ViewModel cleared")
     }

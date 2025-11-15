@@ -1,31 +1,19 @@
 package com.tashichi.clipflow.util
 
 import android.content.Context
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
-import android.net.Uri
+import android.media.MediaMuxer
 import android.util.Log
-import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
-import androidx.media3.effect.Presentation
-import androidx.media3.transformer.Composition
-import androidx.media3.transformer.EditedMediaItem
-import androidx.media3.transformer.EditedMediaItemSequence
-import androidx.media3.transformer.Effects
-import androidx.media3.transformer.ExportException
-import androidx.media3.transformer.ExportResult
-import androidx.media3.transformer.ProgressHolder
-import androidx.media3.transformer.Transformer
 import com.tashichi.clipflow.data.model.Project
 import com.tashichi.clipflow.data.model.SegmentTimeRange
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
+import java.nio.ByteBuffer
 
 /**
  * VideoComposer - 複数の動画セグメントを統合してシームレス再生を実現するクラス
@@ -40,19 +28,19 @@ class VideoComposer(private val context: Context) {
     }
 
     /**
-     * プロジェクトから Composition を作成
+     * プロジェクトから統合ビデオファイルを作成（真の Composition 実装）
      *
-     * iOS の ProjectManager.createComposition() に対応
-     * 複数のセグメントを order 順にソートして統合
+     * iOS の AVMutableComposition に対応
+     * MediaMuxer を使用して複数セグメントを1つの MP4 ファイルに結合
      *
      * @param project 対象のプロジェクト
      * @param onProgress 進捗コールバック (処理済み, 総数)
-     * @return 作成された Composition (失敗時は null)
+     * @return 作成された統合ビデオファイル (失敗時は null)
      */
     suspend fun createComposition(
         project: Project,
         onProgress: (Int, Int) -> Unit = { _, _ -> }
-    ): Composition? = withContext(Dispatchers.IO) {
+    ): File? = withContext(Dispatchers.IO) {
         try {
             val sortedSegments = project.getSortedSegments()
             if (sortedSegments.isEmpty()) {
@@ -62,147 +50,32 @@ class VideoComposer(private val context: Context) {
 
             onProgress(0, sortedSegments.size)
 
-            // EditedMediaItem のリストを作成
-            val editedMediaItems = mutableListOf<EditedMediaItem>()
-            var firstRotation: Int? = null
-
-            sortedSegments.forEachIndexed { index, segment ->
-                Log.d(TAG, "[Segment $index] Processing: ${segment.uri}")
-
-                val file = File(context.filesDir, segment.uri)
-                if (!file.exists()) {
-                    Log.w(TAG, "[Segment $index] File not found: ${segment.uri}")
-                    return@forEachIndexed
-                }
-
-                // ファイルの読み取り可能性をチェック
-                if (!file.canRead()) {
-                    Log.e(TAG, "[Segment $index] File exists but cannot be read: ${segment.uri}")
-                    return@forEachIndexed
-                }
-
-                Log.d(TAG, "[Segment $index] File exists: ${file.absolutePath}, size: ${file.length()} bytes")
-
-                // 動画のメタデータを取得・検証
-                val retriever = MediaMetadataRetriever()
-                var isValidVideo = false
-                try {
-                    Log.d(TAG, "[Segment $index] Setting data source...")
-                    retriever.setDataSource(file.absolutePath)
-                    Log.d(TAG, "[Segment $index] Data source set successfully")
-
-                    // 必須メタデータを取得・検証
-                    val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                    val widthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-                    val heightStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                    val rotationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
-
-                    Log.d(TAG, "[Segment $index] Metadata - Duration: $durationStr, Width: $widthStr, Height: $heightStr, Rotation: $rotationStr")
-
-                    // Duration の検証
-                    val duration = durationStr?.toLongOrNull()
-                    if (duration == null || duration <= 0) {
-                        Log.e(TAG, "[Segment $index] Invalid duration: $durationStr")
-                        return@forEachIndexed
-                    }
-
-                    // Width/Height の検証
-                    val width = widthStr?.toIntOrNull()
-                    val height = heightStr?.toIntOrNull()
-                    if (width == null || height == null || width <= 0 || height <= 0) {
-                        Log.e(TAG, "[Segment $index] Invalid dimensions: ${width}x${height}")
-                        return@forEachIndexed
-                    }
-
-                    // 回転情報を取得 (最初のセグメントの回転を基準とする)
-                    if (index == 0) {
-                        val rotation = rotationStr?.toIntOrNull() ?: 0
-                        firstRotation = rotation
-                        Log.d(TAG, "[Segment $index] First segment rotation: $rotation degrees")
-                    }
-
-                    isValidVideo = true
-                    Log.d(TAG, "[Segment $index] Metadata validation successful - Duration: ${duration}ms, Size: ${width}x${height}")
-
-                } catch (e: IllegalArgumentException) {
-                    Log.e(TAG, "[Segment $index] Invalid data source (file might be corrupted or incomplete): ${segment.uri}", e)
-                    return@forEachIndexed
-                } catch (e: RuntimeException) {
-                    Log.e(TAG, "[Segment $index] Runtime error extracting metadata: ${segment.uri}", e)
-                    Log.e(TAG, "[Segment $index] Error details: ${e.message}")
-                    return@forEachIndexed
-                } catch (e: Exception) {
-                    Log.e(TAG, "[Segment $index] Unexpected error extracting metadata: ${segment.uri}", e)
-                    Log.e(TAG, "[Segment $index] Error type: ${e.javaClass.simpleName}")
-                    return@forEachIndexed
-                } finally {
-                    try {
-                        retriever.release()
-                        Log.d(TAG, "[Segment $index] MediaMetadataRetriever released")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "[Segment $index] Error releasing retriever", e)
-                    }
-                }
-
-                if (!isValidVideo) {
-                    Log.e(TAG, "[Segment $index] Video validation failed, skipping")
-                    return@forEachIndexed
-                }
-
-                // MediaItem を作成
-                try {
-                    val mediaItem = MediaItem.fromUri(Uri.fromFile(file))
-                    Log.d(TAG, "[Segment $index] MediaItem created")
-
-                    // EditedMediaItem を作成
-                    val editedMediaItem = EditedMediaItem.Builder(mediaItem).build()
-                    editedMediaItems.add(editedMediaItem)
-                    Log.d(TAG, "[Segment $index] EditedMediaItem added to list (total: ${editedMediaItems.size})")
-                } catch (e: Exception) {
-                    Log.e(TAG, "[Segment $index] Failed to create MediaItem", e)
-                    return@forEachIndexed
-                }
-
-                // 進捗を通知 (最大80%まで)
-                onProgress(index + 1, sortedSegments.size)
-
-                // 視覚的なフィードバックのため少し遅延 (iOSの実装を参考)
-                delay(10)
+            // キャッシュディレクトリに統合ビデオファイルを作成
+            val cacheDir = File(context.cacheDir, "compositions")
+            if (!cacheDir.exists()) {
+                cacheDir.mkdirs()
             }
 
-            if (editedMediaItems.isEmpty()) {
-                Log.w(TAG, "No valid segments to compose")
+            // プロジェクトIDとタイムスタンプから一意のファイル名を生成
+            val outputFile = File(cacheDir, "composition_${project.id}_${System.currentTimeMillis()}.mp4")
+
+            Log.d(TAG, "Creating merged video file: ${outputFile.absolutePath}")
+
+            // MediaMuxer でセグメントを結合
+            val success = mergeSegmentsToSingleFile(
+                sortedSegments = sortedSegments,
+                outputFile = outputFile,
+                onProgress = onProgress
+            )
+
+            if (!success || !outputFile.exists()) {
+                Log.e(TAG, "Failed to merge segments")
                 return@withContext null
             }
 
-            // EditedMediaItemSequence を作成
-            val sequence = EditedMediaItemSequence(editedMediaItems)
+            Log.d(TAG, "Composition created successfully: ${outputFile.absolutePath} (${outputFile.length()} bytes)")
 
-            // Composition を作成
-            val composition = Composition.Builder(listOf(sequence))
-                .setEffects(
-                    // 回転補正が必要な場合は Effects を設定
-                    if (firstRotation != null && firstRotation != 0) {
-                        Effects(
-                            /* audioProcessors = */ emptyList(),
-                            /* videoEffects = */ listOf(
-                                Presentation.createForWidthAndHeight(
-                                    /* width = */ C.LENGTH_UNSET,
-                                    /* height = */ C.LENGTH_UNSET,
-                                    /* presentationLayout = */ Presentation.LAYOUT_SCALE_TO_FIT
-                                )
-                            )
-                        )
-                    } else {
-                        Effects.EMPTY
-                    }
-                )
-                .build()
-
-            onProgress(sortedSegments.size, sortedSegments.size)
-            Log.d(TAG, "Composition created successfully with ${editedMediaItems.size} segments")
-
-            composition
+            outputFile
         } catch (e: Exception) {
             Log.e(TAG, "[ERROR] Failed to create composition", e)
             Log.e(TAG, "[ERROR] Exception: ${e.message}")
@@ -212,75 +85,266 @@ class VideoComposer(private val context: Context) {
     }
 
     /**
-     * Composition を動画ファイルにエクスポート
+     * MediaMuxer を使用して複数セグメントを1つのファイルに結合
+     *
+     * iOS の AVMutableComposition の実装に相当
+     *
+     * @param sortedSegments ソート済みセグメントリスト
+     * @param outputFile 出力ファイル
+     * @param onProgress 進捗コールバック
+     * @return 成功時は true
+     */
+    private suspend fun mergeSegmentsToSingleFile(
+        sortedSegments: List<com.tashichi.clipflow.data.model.VideoSegment>,
+        outputFile: File,
+        onProgress: (Int, Int) -> Unit
+    ): Boolean = withContext(Dispatchers.IO) {
+        var muxer: MediaMuxer? = null
+        var videoTrackIndex = -1
+        var audioTrackIndex = -1
+        var firstRotation: Int? = null
+
+        // 累積時間（マイクロ秒）を追跡
+        var videoTimeOffsetUs = 0L
+        var audioTimeOffsetUs = 0L
+
+        try {
+            // MediaMuxer を作成
+            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+
+            var isFirstSegment = true
+
+            sortedSegments.forEachIndexed { index, segment ->
+                Log.d(TAG, "[Merge $index] Processing segment: ${segment.uri}")
+
+                val file = File(context.filesDir, segment.uri)
+                if (!file.exists()) {
+                    Log.w(TAG, "[Merge $index] File not found: ${segment.uri}")
+                    return@forEachIndexed
+                }
+
+                // MediaExtractor でセグメントを読み込む
+                val extractor = MediaExtractor()
+                try {
+                    extractor.setDataSource(file.absolutePath)
+                    val trackCount = extractor.trackCount
+                    Log.d(TAG, "[Merge $index] Track count: $trackCount")
+
+                    // 各トラック（ビデオ・オーディオ）を処理
+                    var videoMaxTimeUs = 0L
+                    var audioMaxTimeUs = 0L
+
+                    for (trackIndex in 0 until trackCount) {
+                        val format = extractor.getTrackFormat(trackIndex)
+                        val mime = format.getString(MediaFormat.KEY_MIME) ?: continue
+
+                        Log.d(TAG, "[Merge $index] Track $trackIndex: MIME=$mime")
+
+                        when {
+                            mime.startsWith("video/") -> {
+                                if (isFirstSegment) {
+                                    // 最初のセグメントで回転情報を取得
+                                    if (format.containsKey(MediaFormat.KEY_ROTATION)) {
+                                        firstRotation = format.getInteger(MediaFormat.KEY_ROTATION)
+                                        Log.d(TAG, "[Merge $index] Video rotation: $firstRotation degrees")
+                                    }
+
+                                    // ビデオトラックを追加
+                                    videoTrackIndex = muxer.addTrack(format)
+                                    Log.d(TAG, "[Merge $index] Added video track: $videoTrackIndex")
+                                }
+
+                                // ビデオデータをコピー
+                                val maxTime = copyTrackData(extractor, muxer, trackIndex, videoTrackIndex, videoTimeOffsetUs)
+                                if (maxTime > videoMaxTimeUs) {
+                                    videoMaxTimeUs = maxTime
+                                }
+                            }
+                            mime.startsWith("audio/") -> {
+                                if (isFirstSegment) {
+                                    // オーディオトラックを追加
+                                    audioTrackIndex = muxer.addTrack(format)
+                                    Log.d(TAG, "[Merge $index] Added audio track: $audioTrackIndex")
+                                }
+
+                                // オーディオデータをコピー
+                                val maxTime = copyTrackData(extractor, muxer, trackIndex, audioTrackIndex, audioTimeOffsetUs)
+                                if (maxTime > audioMaxTimeUs) {
+                                    audioMaxTimeUs = maxTime
+                                }
+                            }
+                        }
+                    }
+
+                    if (isFirstSegment) {
+                        // 回転情報を設定
+                        if (firstRotation != null && firstRotation != 0) {
+                            muxer.setOrientationHint(firstRotation!!)
+                            Log.d(TAG, "[Merge] Set orientation hint: $firstRotation degrees")
+                        }
+
+                        // Muxer を開始
+                        muxer.start()
+                        Log.d(TAG, "[Merge] Muxer started")
+                        isFirstSegment = false
+                    }
+
+                    // 次のセグメント用に累積時間を更新
+                    if (videoMaxTimeUs > 0) {
+                        videoTimeOffsetUs = videoMaxTimeUs
+                        Log.d(TAG, "[Merge $index] Video offset updated to: ${videoTimeOffsetUs}us")
+                    }
+                    if (audioMaxTimeUs > 0) {
+                        audioTimeOffsetUs = audioMaxTimeUs
+                        Log.d(TAG, "[Merge $index] Audio offset updated to: ${audioTimeOffsetUs}us")
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "[Merge $index] Error processing segment", e)
+                } finally {
+                    extractor.release()
+                }
+
+                // 進捗を通知
+                onProgress(index + 1, sortedSegments.size)
+                delay(10)
+            }
+
+            // Muxer を停止
+            muxer.stop()
+            Log.d(TAG, "[Merge] Muxer stopped")
+
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "[Merge] Failed to merge segments", e)
+            Log.e(TAG, "[Merge] Error: ${e.message}")
+            false
+        } finally {
+            try {
+                muxer?.release()
+                Log.d(TAG, "[Merge] Muxer released")
+            } catch (e: Exception) {
+                Log.e(TAG, "[Merge] Error releasing muxer", e)
+            }
+        }
+    }
+
+    /**
+     * MediaExtractor から MediaMuxer へトラックデータをコピー
+     *
+     * @param extractor ソース extractor
+     * @param muxer ターゲット muxer
+     * @param sourceTrackIndex ソーストラックインデックス
+     * @param targetTrackIndex ターゲットトラックインデックス
+     * @param timeOffsetUs 時間オフセット（マイクロ秒）
+     * @return このトラックの最大 presentation time（マイクロ秒）
+     */
+    private fun copyTrackData(
+        extractor: MediaExtractor,
+        muxer: MediaMuxer,
+        sourceTrackIndex: Int,
+        targetTrackIndex: Int,
+        timeOffsetUs: Long
+    ): Long {
+        if (targetTrackIndex < 0) {
+            Log.w(TAG, "[CopyTrack] Invalid target track index: $targetTrackIndex")
+            return 0L
+        }
+
+        extractor.selectTrack(sourceTrackIndex)
+        extractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+
+        val buffer = ByteBuffer.allocate(1024 * 1024) // 1MB バッファ
+        val bufferInfo = MediaCodec.BufferInfo()
+        var sampleCount = 0
+        var maxTimeUs = timeOffsetUs
+
+        while (true) {
+            val sampleSize = extractor.readSampleData(buffer, 0)
+            if (sampleSize < 0) {
+                break // データの終わり
+            }
+
+            // 元の presentation time に offset を追加
+            val originalTimeUs = extractor.sampleTime
+            val adjustedTimeUs = originalTimeUs + timeOffsetUs
+
+            bufferInfo.presentationTimeUs = adjustedTimeUs
+            bufferInfo.flags = extractor.sampleFlags
+            bufferInfo.size = sampleSize
+            bufferInfo.offset = 0
+
+            muxer.writeSampleData(targetTrackIndex, buffer, bufferInfo)
+
+            if (adjustedTimeUs > maxTimeUs) {
+                maxTimeUs = adjustedTimeUs
+            }
+
+            extractor.advance()
+            sampleCount++
+        }
+
+        extractor.unselectTrack(sourceTrackIndex)
+        Log.d(TAG, "[CopyTrack] Copied $sampleCount samples from track $sourceTrackIndex to $targetTrackIndex (offset: ${timeOffsetUs}us, max: ${maxTimeUs}us)")
+
+        return maxTimeUs
+    }
+
+    /**
+     * 統合ビデオファイルをエクスポート（真の Composition 実装）
      *
      * iOS の PlayerView.exportVideo() に対応
-     * AVAssetExportSession の代わりに Transformer を使用
+     * 既に統合されたファイルを指定された場所にコピー
      *
-     * @param composition エクスポートする Composition
+     * @param compositionFile エクスポートする統合ビデオファイル
      * @param outputFile 出力先ファイル
      * @param onProgress 進捗コールバック (0.0 ~ 1.0)
      * @return エクスポート成功時は true
      */
     suspend fun exportComposition(
-        composition: Composition,
+        compositionFile: File,
         outputFile: File,
         onProgress: (Float) -> Unit = {}
     ): Boolean = withContext(Dispatchers.IO) {
-        suspendCoroutine { continuation ->
-            // Transformer リスナーを定義
-            val listener = object : Transformer.Listener {
-                override fun onCompleted(composition: Composition, exportResult: ExportResult) {
-                    Log.d(TAG, "Export completed successfully")
-                    onProgress(1.0f)
-                    continuation.resume(true)
-                }
-
-                override fun onError(
-                    composition: Composition,
-                    exportResult: ExportResult,
-                    exportException: ExportException
-                ) {
-                    Log.e(TAG, "Export failed", exportException)
-                    continuation.resume(false)
-                }
+        try {
+            if (!compositionFile.exists()) {
+                Log.e(TAG, "Composition file not found: ${compositionFile.absolutePath}")
+                return@withContext false
             }
 
-            // Transformer を作成
-            val transformer = Transformer.Builder(context)
-                .addListener(listener)
-                .setVideoMimeType(MimeTypes.VIDEO_H264)
-                .build()
+            Log.d(TAG, "Exporting composition from ${compositionFile.absolutePath} to ${outputFile.absolutePath}")
 
-            try {
-                // エクスポート開始
-                transformer.start(composition, outputFile.absolutePath)
+            onProgress(0.0f)
 
-                // 進捗監視を開始
-                launch(Dispatchers.IO) {
-                    while (isActive) {
-                        try {
-                            val progressHolder = ProgressHolder()
-                            transformer.getProgress(progressHolder)
-                            val progress = progressHolder.progress / 100f
-                            onProgress(progress)
+            // ファイルをコピー
+            val bufferSize = 8192
+            val totalBytes = compositionFile.length()
+            var bytesCopied = 0L
 
-                            // 完了したら監視終了
-                            if (progress >= 1.0f) {
-                                break
-                            }
-                        } catch (e: Exception) {
-                            // Transformer が既に解放されている可能性がある
-                            break
-                        }
+            compositionFile.inputStream().use { input ->
+                outputFile.outputStream().use { output ->
+                    val buffer = ByteArray(bufferSize)
+                    var bytesRead: Int
 
-                        delay(100) // 0.1秒ごとに更新
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        bytesCopied += bytesRead
+
+                        // 進捗を通知
+                        val progress = (bytesCopied.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                        onProgress(progress)
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start export", e)
-                continuation.resume(false)
             }
+
+            onProgress(1.0f)
+            Log.d(TAG, "Export completed successfully: ${outputFile.absolutePath} (${outputFile.length()} bytes)")
+
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to export composition", e)
+            Log.e(TAG, "Error: ${e.message}")
+            false
         }
     }
 
