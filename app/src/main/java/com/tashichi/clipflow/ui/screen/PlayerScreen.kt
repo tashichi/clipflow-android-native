@@ -30,6 +30,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import android.util.Log
 import com.tashichi.clipflow.data.model.Project
 import com.tashichi.clipflow.ui.viewmodel.PlayerViewModel
 import kotlinx.coroutines.delay
@@ -498,7 +499,10 @@ fun PlaybackControlsView(
 
         // 再生/一時停止ボタン（大きく青色）
         IconButton(
-            onClick = onPlayPause,
+            onClick = {
+                Log.d("PlayerScreen", "[DEBUG] Play/Pause button clicked!")
+                onPlayPause()
+            },
             modifier = Modifier
                 .size(80.dp)
                 .background(
