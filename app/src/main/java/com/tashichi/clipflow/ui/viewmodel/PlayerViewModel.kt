@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.transformer.Composition
 import com.tashichi.clipflow.data.model.Project
@@ -148,9 +149,22 @@ class PlayerViewModel : ViewModel() {
             return
         }
 
-        // ExoPlayerを作成
+        // ExoPlayerを作成（メモリ最適化設定付き）
         if (_exoPlayer == null) {
-            _exoPlayer = ExoPlayer.Builder(context).build().apply {
+            // LoadControlを作成してバッファサイズを最適化
+            val loadControl = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    /* minBufferMs = */ 2000,  // 最小バッファ: 2秒
+                    /* maxBufferMs = */ 5000,  // 最大バッファ: 5秒（デフォルトは50秒）
+                    /* bufferForPlaybackMs = */ 1000,  // 再生開始バッファ: 1秒
+                    /* bufferForPlaybackAfterRebufferMs = */ 2000  // 再バッファ後: 2秒
+                )
+                .build()
+
+            _exoPlayer = ExoPlayer.Builder(context)
+                .setLoadControl(loadControl)  // メモリ使用量を削減
+                .build()
+                .apply {
                 // プレイヤーリスナーを設定
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
