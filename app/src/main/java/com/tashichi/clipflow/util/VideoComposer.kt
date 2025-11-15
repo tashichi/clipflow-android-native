@@ -67,37 +67,101 @@ class VideoComposer(private val context: Context) {
             var firstRotation: Int? = null
 
             sortedSegments.forEachIndexed { index, segment ->
+                Log.d(TAG, "[Segment $index] Processing: ${segment.uri}")
+
                 val file = File(context.filesDir, segment.uri)
                 if (!file.exists()) {
-                    Log.w(TAG, "Segment file not found: ${segment.uri}")
+                    Log.w(TAG, "[Segment $index] File not found: ${segment.uri}")
+                    return@forEachIndexed
+                }
+
+                // ファイルの読み取り可能性をチェック
+                if (!file.canRead()) {
+                    Log.e(TAG, "[Segment $index] File exists but cannot be read: ${segment.uri}")
+                    return@forEachIndexed
+                }
+
+                Log.d(TAG, "[Segment $index] File exists: ${file.absolutePath}, size: ${file.length()} bytes")
+
+                // 動画のメタデータを取得・検証
+                val retriever = MediaMetadataRetriever()
+                var isValidVideo = false
+                try {
+                    Log.d(TAG, "[Segment $index] Setting data source...")
+                    retriever.setDataSource(file.absolutePath)
+                    Log.d(TAG, "[Segment $index] Data source set successfully")
+
+                    // 必須メタデータを取得・検証
+                    val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    val widthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                    val heightStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                    val rotationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+
+                    Log.d(TAG, "[Segment $index] Metadata - Duration: $durationStr, Width: $widthStr, Height: $heightStr, Rotation: $rotationStr")
+
+                    // Duration の検証
+                    val duration = durationStr?.toLongOrNull()
+                    if (duration == null || duration <= 0) {
+                        Log.e(TAG, "[Segment $index] Invalid duration: $durationStr")
+                        return@forEachIndexed
+                    }
+
+                    // Width/Height の検証
+                    val width = widthStr?.toIntOrNull()
+                    val height = heightStr?.toIntOrNull()
+                    if (width == null || height == null || width <= 0 || height <= 0) {
+                        Log.e(TAG, "[Segment $index] Invalid dimensions: ${width}x${height}")
+                        return@forEachIndexed
+                    }
+
+                    // 回転情報を取得 (最初のセグメントの回転を基準とする)
+                    if (index == 0) {
+                        val rotation = rotationStr?.toIntOrNull() ?: 0
+                        firstRotation = rotation
+                        Log.d(TAG, "[Segment $index] First segment rotation: $rotation degrees")
+                    }
+
+                    isValidVideo = true
+                    Log.d(TAG, "[Segment $index] Metadata validation successful - Duration: ${duration}ms, Size: ${width}x${height}")
+
+                } catch (e: IllegalArgumentException) {
+                    Log.e(TAG, "[Segment $index] Invalid data source (file might be corrupted or incomplete): ${segment.uri}", e)
+                    return@forEachIndexed
+                } catch (e: RuntimeException) {
+                    Log.e(TAG, "[Segment $index] Runtime error extracting metadata: ${segment.uri}", e)
+                    Log.e(TAG, "[Segment $index] Error details: ${e.message}")
+                    return@forEachIndexed
+                } catch (e: Exception) {
+                    Log.e(TAG, "[Segment $index] Unexpected error extracting metadata: ${segment.uri}", e)
+                    Log.e(TAG, "[Segment $index] Error type: ${e.javaClass.simpleName}")
+                    return@forEachIndexed
+                } finally {
+                    try {
+                        retriever.release()
+                        Log.d(TAG, "[Segment $index] MediaMetadataRetriever released")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "[Segment $index] Error releasing retriever", e)
+                    }
+                }
+
+                if (!isValidVideo) {
+                    Log.e(TAG, "[Segment $index] Video validation failed, skipping")
                     return@forEachIndexed
                 }
 
                 // MediaItem を作成
-                val mediaItem = MediaItem.fromUri(Uri.fromFile(file))
-
-                // 動画のメタデータを取得
-                val retriever = MediaMetadataRetriever()
                 try {
-                    retriever.setDataSource(file.absolutePath)
+                    val mediaItem = MediaItem.fromUri(Uri.fromFile(file))
+                    Log.d(TAG, "[Segment $index] MediaItem created")
 
-                    // 回転情報を取得 (最初のセグメントの回転を基準とする)
-                    if (index == 0) {
-                        val rotation = retriever.extractMetadata(
-                            MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION
-                        )?.toIntOrNull() ?: 0
-                        firstRotation = rotation
-                        Log.d(TAG, "First segment rotation: $rotation degrees")
-                    }
+                    // EditedMediaItem を作成
+                    val editedMediaItem = EditedMediaItem.Builder(mediaItem).build()
+                    editedMediaItems.add(editedMediaItem)
+                    Log.d(TAG, "[Segment $index] EditedMediaItem added to list (total: ${editedMediaItems.size})")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to extract metadata from ${segment.uri}", e)
-                } finally {
-                    retriever.release()
+                    Log.e(TAG, "[Segment $index] Failed to create MediaItem", e)
+                    return@forEachIndexed
                 }
-
-                // EditedMediaItem を作成
-                val editedMediaItem = EditedMediaItem.Builder(mediaItem).build()
-                editedMediaItems.add(editedMediaItem)
 
                 // 進捗を通知 (最大80%まで)
                 onProgress(index + 1, sortedSegments.size)

@@ -155,20 +155,36 @@ class PlayerViewModel : ViewModel() {
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         when (playbackState) {
+                            Player.STATE_IDLE -> {
+                                Log.d(TAG, "Player state: IDLE")
+                            }
+                            Player.STATE_BUFFERING -> {
+                                Log.d(TAG, "Player state: BUFFERING")
+                            }
                             Player.STATE_READY -> {
                                 _duration.value = this@apply.duration
-                                Log.d(TAG, "Player ready, duration: ${this@apply.duration}ms")
+                                Log.d(TAG, "Player state: READY, duration: ${this@apply.duration}ms")
                             }
                             Player.STATE_ENDED -> {
                                 _isPlaying.value = false
-                                Log.d(TAG, "Playback ended")
+                                Log.d(TAG, "Player state: ENDED")
                             }
-                            else -> {}
                         }
                     }
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         _isPlaying.value = isPlaying
+                        Log.d(TAG, "Is playing changed: $isPlaying")
+                    }
+
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        Log.e(TAG, "ExoPlayer error occurred", error)
+                        Log.e(TAG, "Error code: ${error.errorCode}")
+                        Log.e(TAG, "Error message: ${error.message}")
+                        Log.e(TAG, "Error type: ${error.javaClass.simpleName}")
+                        _errorMessage.value = "Playback error: ${error.message}"
+                        _isPlaying.value = false
+                        _isLoading.value = false
                     }
                 })
             }
@@ -261,13 +277,25 @@ class PlayerViewModel : ViewModel() {
         val context = _context ?: return
         val player = _exoPlayer ?: return
 
+        Log.d(TAG, "Loading segments to player...")
+
         val sortedSegments = project.getSortedSegments()
-        val mediaItems = sortedSegments.mapNotNull { segment ->
+        Log.d(TAG, "Total segments to load: ${sortedSegments.size}")
+
+        val mediaItems = sortedSegments.mapIndexedNotNull { index, segment ->
             val file = File(context.filesDir, segment.uri)
             if (file.exists()) {
-                MediaItem.fromUri(Uri.fromFile(file))
+                Log.d(TAG, "Segment $index: File exists (${file.length()} bytes)")
+                try {
+                    val mediaItem = MediaItem.fromUri(Uri.fromFile(file))
+                    Log.d(TAG, "Segment $index: MediaItem created successfully")
+                    mediaItem
+                } catch (e: Exception) {
+                    Log.e(TAG, "Segment $index: Failed to create MediaItem", e)
+                    null
+                }
             } else {
-                Log.w(TAG, "Segment file not found: ${segment.uri}")
+                Log.w(TAG, "Segment $index: File not found: ${segment.uri}")
                 null
             }
         }
@@ -278,10 +306,16 @@ class PlayerViewModel : ViewModel() {
             return
         }
 
-        player.setMediaItems(mediaItems)
-        player.prepare()
-
-        Log.d(TAG, "Loaded ${mediaItems.size} media items to player")
+        Log.d(TAG, "Setting ${mediaItems.size} media items to player...")
+        try {
+            player.setMediaItems(mediaItems)
+            Log.d(TAG, "Preparing player...")
+            player.prepare()
+            Log.d(TAG, "Player prepared successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to prepare player", e)
+            _errorMessage.value = "Failed to prepare player: ${e.message}"
+        }
     }
 
     /**
