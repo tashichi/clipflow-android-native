@@ -104,7 +104,13 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
                 // VideoCapture use case を作成
                 val recorder = Recorder.Builder()
-                    .setQualitySelector(QualitySelector.from(Quality.HD))
+                    .setQualitySelector(
+                        QualitySelector.fromOrderedList(
+                            listOf(Quality.SD, Quality.HD),
+                            FallbackStrategy.lowerQualityThan(Quality.SD)
+                        )
+                    )
+                    .setTargetVideoEncodingBitRate(2_500_000)  // 2.5 Mbps
                     .build()
 
                 videoCapture = VideoCapture.withOutput(recorder)
