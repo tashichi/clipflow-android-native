@@ -65,6 +65,8 @@ class VideoComposer(private val context: Context) {
             // EditedMediaItem のリストを作成
             val editedMediaItems = mutableListOf<EditedMediaItem>()
             var firstRotation: Int? = null
+            var firstWidth: Int? = null
+            var firstHeight: Int? = null
 
             sortedSegments.forEachIndexed { index, segment ->
                 val file = File(context.filesDir, segment.uri)
@@ -81,13 +83,39 @@ class VideoComposer(private val context: Context) {
                 try {
                     retriever.setDataSource(file.absolutePath)
 
-                    // 回転情報を取得 (最初のセグメントの回転を基準とする)
+                    // 最初のセグメントからメタデータを取得
                     if (index == 0) {
+                        // 回転情報を取得
                         val rotation = retriever.extractMetadata(
                             MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION
                         )?.toIntOrNull() ?: 0
                         firstRotation = rotation
-                        Log.d(TAG, "First segment rotation: $rotation degrees")
+
+                        // 動画の幅と高さを取得
+                        val width = retriever.extractMetadata(
+                            MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH
+                        )?.toIntOrNull() ?: -1
+                        val height = retriever.extractMetadata(
+                            MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT
+                        )?.toIntOrNull() ?: -1
+
+                        // 回転が90度または270度の場合、幅と高さを入れ替える
+                        if (rotation == 90 || rotation == 270) {
+                            firstWidth = height
+                            firstHeight = width
+                            Log.d(TAG, "First segment rotation: $rotation degrees, swapped dimensions: ${height}x${width}")
+                        } else {
+                            firstWidth = width
+                            firstHeight = height
+                            Log.d(TAG, "First segment rotation: $rotation degrees, dimensions: ${width}x${height}")
+                        }
+
+                        // フォールバック処理：メタデータ取得に失敗した場合
+                        if (firstWidth == -1 || firstHeight == -1) {
+                            Log.w(TAG, "Failed to get video dimensions from metadata, using default 1920x1080")
+                            firstWidth = 1920
+                            firstHeight = 1080
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to extract metadata from ${segment.uri}", e)
@@ -117,14 +145,14 @@ class VideoComposer(private val context: Context) {
             // Composition を作成
             val composition = Composition.Builder(listOf(sequence))
                 .setEffects(
-                    // 回転補正が必要な場合は Effects を設定
-                    if (firstRotation != null && firstRotation != 0) {
+                    // 動画の幅・高さが取得できている場合は Presentation を設定
+                    if (firstWidth != null && firstHeight != null && firstWidth > 0 && firstHeight > 0) {
                         Effects(
                             /* audioProcessors = */ emptyList(),
                             /* videoEffects = */ listOf(
                                 Presentation.createForWidthAndHeight(
-                                    /* width = */ C.LENGTH_UNSET,
-                                    /* height = */ C.LENGTH_UNSET,
+                                    /* width = */ firstWidth,
+                                    /* height = */ firstHeight,
                                     /* presentationLayout = */ Presentation.LAYOUT_SCALE_TO_FIT
                                 )
                             )
