@@ -184,11 +184,17 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                             // 録画が実際に開始されてから1秒タイマーを起動
                             viewModelScope.launch {
                                 try {
-                                    Log.d(TAG, "[TIMER] Starting 1-second countdown...")
-                                    delay(RECORDING_DURATION_MS)
+                                    // VideoRecordEvent.Start から正確に1秒計測
+                                    val recordingStartTime = System.currentTimeMillis()
+                                    Log.d(TAG, "[TIMER] Starting 1-second countdown from Start event...")
+
+                                    // 最初のイベントから正確に1秒待つ
+                                    while (System.currentTimeMillis() - recordingStartTime < RECORDING_DURATION_MS) {
+                                        delay(50)
+                                    }
 
                                     val stopTime = System.currentTimeMillis()
-                                    val actualDuration = stopTime - startTime
+                                    val actualDuration = stopTime - recordingStartTime
                                     Log.d(TAG, "[TIMER] Timer completed. Actual duration: ${actualDuration}ms")
                                     Log.d(TAG, "[TIMER] Calling stopRecording() at $stopTime")
 
