@@ -1,5 +1,6 @@
 package com.tashichi.clipflow.ui.viewmodel
 
+import android.app.Application
 import android.content.Context
 import android.util.Log
 import androidx.camera.core.*
@@ -9,11 +10,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.tashichi.clipflow.data.model.Project
 import com.tashichi.clipflow.data.model.VideoSegment
+import com.tashichi.clipflow.data.repository.ProjectRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -36,12 +38,15 @@ import java.io.File
  * - フラッシュライト制御
  * - セグメント保存
  */
-class CameraViewModel : ViewModel() {
+class CameraViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = "CameraViewModel"
         private const val RECORDING_DURATION_MS = 1000L // 1秒
     }
+
+    // ProjectRepository
+    private val repository = ProjectRepository(application)
 
     // カメラとビデオキャプチャのインスタンス
     private var camera: Camera? = null
@@ -230,6 +235,23 @@ class CameraViewModel : ViewModel() {
 
                                 // コールバックを呼び出し
                                 onSegmentRecorded(segment)
+
+                                // プロジェクトを更新
+                                project?.let {
+                                    viewModelScope.launch {
+                                        try {
+                                            val updatedProject = it.copy(
+                                                segments = it.segments + segment,
+                                                lastModified = System.currentTimeMillis()
+                                            )
+                                            repository.updateProject(updatedProject)
+                                            _currentProject.value = updatedProject
+                                            Log.d(TAG, "[SUCCESS] Project updated with new segment")
+                                        } catch (e: Exception) {
+                                            Log.e(TAG, "[ERROR] Failed to update project", e)
+                                        }
+                                    }
+                                }
 
                                 // 成功トーストを表示
                                 showToast("Segment $order recorded")
