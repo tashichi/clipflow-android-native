@@ -193,7 +193,17 @@ fun CameraScreen(
                     Log.d("CameraScreen", "[DEBUG] isRecording=$isRecording, viewModel=$viewModel")
                     if (!isRecording) {
                         Log.d("CameraScreen", "[DEBUG] Calling startRecording()")
-                        viewModel.startRecording(context, onSegmentRecorded)
+                        viewModel.startRecording(context) { segment ->
+                            // プロジェクトを更新
+                            val updatedProject = project.copy(
+                                segments = project.segments + segment,
+                                lastModified = System.currentTimeMillis()
+                            )
+                            viewModel.updateProjectInRepository(updatedProject)
+
+                            // 元のコールバックを呼び出し
+                            onSegmentRecorded(segment)
+                        }
                     }
                 },
                 onToggleTorch = {

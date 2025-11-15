@@ -236,23 +236,6 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                                 // コールバックを呼び出し
                                 onSegmentRecorded(segment)
 
-                                // プロジェクトを更新
-                                project?.let {
-                                    viewModelScope.launch {
-                                        try {
-                                            val updatedProject = it.copy(
-                                                segments = it.segments + segment,
-                                                lastModified = System.currentTimeMillis()
-                                            )
-                                            repository.updateProject(updatedProject)
-                                            _currentProject.value = updatedProject
-                                            Log.d(TAG, "[SUCCESS] Project updated with new segment")
-                                        } catch (e: Exception) {
-                                            Log.e(TAG, "[ERROR] Failed to update project", e)
-                                        }
-                                    }
-                                }
-
                                 // 成功トーストを表示
                                 showToast("Segment $order recorded")
 
@@ -352,6 +335,23 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
         _isTorchOn.value = newTorchState
 
         Log.d(TAG, "Torch ${if (newTorchState) "enabled" else "disabled"}")
+    }
+
+    /**
+     * プロジェクトをリポジトリに保存
+     *
+     * @param project 保存するプロジェクト
+     */
+    fun updateProjectInRepository(project: Project) {
+        viewModelScope.launch {
+            try {
+                repository.updateProject(project)
+                _currentProject.value = project
+                Log.d(TAG, "Project saved to repository")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save project", e)
+            }
+        }
     }
 
     /**
