@@ -140,8 +140,10 @@ class VideoComposer(private val context: Context) {
 
             composition
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create composition", e)
-            null
+            Log.e(TAG, "[ERROR] Failed to create composition", e)
+            Log.e(TAG, "[ERROR] Exception: ${e.message}")
+            Log.e(TAG, "[ERROR] Stack trace: ${e.stackTraceToString()}")
+            return@withContext null
         }
     }
 
