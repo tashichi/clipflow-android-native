@@ -1,6 +1,7 @@
 package com.tashichi.clipflow.ui.screen
 
 import android.content.Context
+import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.view.PreviewView
@@ -166,7 +167,10 @@ fun CameraScreen(
                 isTorchOn = isTorchOn,
                 isFrontCamera = cameraSelector == CameraSelector.DEFAULT_FRONT_CAMERA,
                 onRecord = {
+                    Log.d("CameraScreen", "[DEBUG] Record button clicked!")
+                    Log.d("CameraScreen", "[DEBUG] isRecording=$isRecording, viewModel=$viewModel")
                     if (!isRecording) {
+                        Log.d("CameraScreen", "[DEBUG] Calling startRecording()")
                         viewModel.startRecording(context, onSegmentRecorded)
                     }
                 },
