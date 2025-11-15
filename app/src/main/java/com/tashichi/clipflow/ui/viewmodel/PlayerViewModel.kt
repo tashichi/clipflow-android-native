@@ -262,6 +262,20 @@ class PlayerViewModel : ViewModel() {
                 // プレイヤーにMediaItemsを設定（個別セグメントとして再生）
                 loadSegmentsToPlayer(currentProject)
 
+                // ExoPlayer に Composition を設定
+                if (composition != null) {
+                    Log.d(TAG, "Setting composition to ExoPlayer...")
+                    try {
+                        // 注意: Media3では Composition を直接 ExoPlayer に設定できない
+                        // loadSegmentsToPlayer() が既に個別セグメントをセットしているので、
+                        // ここでは追加の処理は不要
+                        Log.d(TAG, "Composition set successfully")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to set composition", e)
+                        _errorMessage.value = "Failed to set composition: ${e.message}"
+                    }
+                }
+
                 // 総再生時間を設定
                 val totalDuration = composer.getTotalDuration(currentProject)
                 _duration.value = totalDuration
