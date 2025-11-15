@@ -152,73 +152,103 @@ class CameraViewModel : ViewModel() {
             return
         }
 
-        viewModelScope.launch {
-            try {
-                _isRecording.value = true
+        try {
+            _isRecording.value = true
+            Log.d(TAG, "[TIMER] Recording requested at ${System.currentTimeMillis()}")
 
-                // ファイル名を生成（Unix timestamp）
-                val timestamp = System.currentTimeMillis()
-                val outputFile = File(
-                    context.filesDir,
-                    "segment_$timestamp.mp4"
-                )
+            // ファイル名を生成（Unix timestamp）
+            val timestamp = System.currentTimeMillis()
+            val outputFile = File(
+                context.filesDir,
+                "segment_$timestamp.mp4"
+            )
 
-                val outputOptions = FileOutputOptions.Builder(outputFile).build()
+            val outputOptions = FileOutputOptions.Builder(outputFile).build()
 
-                // 録画開始
-                recording = currentVideoCapture.output
-                    .prepareRecording(context, outputOptions)
-                    .withAudioEnabled()
-                    .start(ContextCompat.getMainExecutor(context)) { recordEvent ->
-                        when (recordEvent) {
-                            is VideoRecordEvent.Start -> {
-                                Log.d(TAG, "Recording started")
-                            }
-                            is VideoRecordEvent.Finalize -> {
-                                if (recordEvent.hasError()) {
-                                    Log.e(TAG, "Recording error: ${recordEvent.error}")
-                                    _isRecording.value = false
-                                } else {
-                                    Log.d(TAG, "Recording saved: ${outputFile.absolutePath}")
+            // 録画開始
+            Log.d(TAG, "[TIMER] Preparing recording...")
+            recording = currentVideoCapture.output
+                .prepareRecording(context, outputOptions)
+                .withAudioEnabled()
+                .start(ContextCompat.getMainExecutor(context)) { recordEvent ->
+                    when (recordEvent) {
+                        is VideoRecordEvent.Start -> {
+                            val startTime = System.currentTimeMillis()
+                            Log.d(TAG, "[TIMER] Recording STARTED at $startTime")
 
-                                    // VideoSegmentを作成
-                                    val facing = if (_cameraSelector.value == CameraSelector.DEFAULT_BACK_CAMERA) {
-                                        "back"
-                                    } else {
-                                        "front"
-                                    }
+                            // 録画が実際に開始されてから1秒タイマーを起動
+                            viewModelScope.launch {
+                                try {
+                                    Log.d(TAG, "[TIMER] Starting 1-second countdown...")
+                                    delay(RECORDING_DURATION_MS)
 
-                                    val project = _currentProject.value
-                                    val order = (project?.segments?.size ?: 0) + 1
+                                    val stopTime = System.currentTimeMillis()
+                                    val actualDuration = stopTime - startTime
+                                    Log.d(TAG, "[TIMER] Timer completed. Actual duration: ${actualDuration}ms")
+                                    Log.d(TAG, "[TIMER] Calling stopRecording() at $stopTime")
 
-                                    val segment = VideoSegment(
-                                        id = timestamp,
-                                        uri = outputFile.name,
-                                        timestamp = timestamp,
-                                        facing = facing,
-                                        order = order
-                                    )
-
-                                    // コールバックを呼び出し
-                                    onSegmentRecorded(segment)
-
-                                    // 成功トーストを表示
-                                    showToast("Segment $order recorded")
-
+                                    stopRecording()
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "[TIMER] Error during recording timer", e)
+                                    stopRecording()
                                     _isRecording.value = false
                                 }
                             }
                         }
+                        is VideoRecordEvent.Finalize -> {
+                            val finalizeTime = System.currentTimeMillis()
+                            Log.d(TAG, "[TIMER] Recording FINALIZED at $finalizeTime")
+
+                            if (recordEvent.hasError()) {
+                                Log.e(TAG, "[ERROR] Recording error: ${recordEvent.error}")
+                                Log.e(TAG, "[ERROR] Error code: ${recordEvent.error}")
+                                _isRecording.value = false
+                            } else {
+                                val fileSize = if (outputFile.exists()) outputFile.length() else 0
+                                Log.d(TAG, "[SUCCESS] Recording saved: ${outputFile.absolutePath}")
+                                Log.d(TAG, "[SUCCESS] File size: $fileSize bytes")
+
+                                // VideoSegmentを作成
+                                val facing = if (_cameraSelector.value == CameraSelector.DEFAULT_BACK_CAMERA) {
+                                    "back"
+                                } else {
+                                    "front"
+                                }
+
+                                val project = _currentProject.value
+                                val order = (project?.segments?.size ?: 0) + 1
+
+                                val segment = VideoSegment(
+                                    id = timestamp,
+                                    uri = outputFile.name,
+                                    timestamp = timestamp,
+                                    facing = facing,
+                                    order = order
+                                )
+
+                                Log.d(TAG, "[SUCCESS] VideoSegment created: order=$order, facing=$facing")
+
+                                // コールバックを呼び出し
+                                onSegmentRecorded(segment)
+
+                                // 成功トーストを表示
+                                showToast("Segment $order recorded")
+
+                                _isRecording.value = false
+                            }
+                        }
+                        is VideoRecordEvent.Status -> {
+                            // 録画中のステータス更新（オプション）
+                            Log.v(TAG, "[STATUS] Recording duration: ${recordEvent.recordingStats.recordedDurationNanos / 1_000_000}ms")
+                        }
                     }
+                }
 
-                // 1秒後に録画を停止（iOS版と同じ動作）
-                delay(RECORDING_DURATION_MS)
-                stopRecording()
+            Log.d(TAG, "[TIMER] Recording object created, waiting for Start event...")
 
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to start recording", e)
-                _isRecording.value = false
-            }
+        } catch (e: Exception) {
+            Log.e(TAG, "[ERROR] Failed to start recording", e)
+            _isRecording.value = false
         }
     }
 
@@ -228,8 +258,15 @@ class CameraViewModel : ViewModel() {
      * iOS版参考: CameraView.swift:260-306 (1秒後の自動停止処理)
      */
     fun stopRecording() {
-        recording?.stop()
-        recording = null
+        val currentRecording = recording
+        if (currentRecording != null) {
+            Log.d(TAG, "[TIMER] Stopping recording...")
+            currentRecording.stop()
+            recording = null
+            Log.d(TAG, "[TIMER] Recording stopped successfully")
+        } else {
+            Log.w(TAG, "[TIMER] stopRecording() called but recording is null")
+        }
     }
 
     /**
