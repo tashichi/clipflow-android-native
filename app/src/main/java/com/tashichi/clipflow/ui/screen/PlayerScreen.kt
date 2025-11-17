@@ -96,6 +96,11 @@ fun PlayerScreen(
     val toastMessage by viewModel.toastMessage.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
+    // エクスポート状態
+    val isExporting by viewModel.isExporting.collectAsState()
+    val exportProgress by viewModel.exportProgress.collectAsState()
+    val exportSuccess by viewModel.exportSuccess.collectAsState()
+
     // セグメント削除ダイアログの状態
     var showDeleteDialog by remember { mutableStateOf(false) }
 
@@ -143,7 +148,10 @@ fun PlayerScreen(
                 project = currentProject,
                 currentSegmentIndex = currentSegmentIndex,
                 onBack = onBack,
-                onExport = onExport
+                onExport = {
+                    // ViewModel のエクスポート機能を呼び出し
+                    viewModel.exportToGallery()
+                }
             )
 
             Spacer(modifier = Modifier.weight(1f))
@@ -229,6 +237,23 @@ fun PlayerScreen(
                 },
                 onDismiss = {
                     showDeleteDialog = false
+                }
+            )
+        }
+
+        // エクスポート進捗オーバーレイ
+        if (isExporting) {
+            ExportProgressOverlay(
+                progress = exportProgress,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+
+        // エクスポート成功ダイアログ
+        if (exportSuccess) {
+            ExportSuccessDialog(
+                onDismiss = {
+                    viewModel.clearExportSuccess()
                 }
             )
         }
@@ -826,6 +851,114 @@ fun DeleteConfirmationDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
+            }
+        }
+    )
+}
+
+/**
+ * エクスポート進捗オーバーレイ
+ *
+ * Section_5b参考: エクスポート進捗表示
+ *
+ * @param progress 進捗（0.0〜1.0）
+ * @param modifier Modifier
+ */
+@Composable
+fun ExportProgressOverlay(
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.8f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = modifier.padding(32.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color.DarkGray
+            ),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Exporting Video",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                CircularProgressIndicator(
+                    progress = progress,
+                    modifier = Modifier.size(80.dp),
+                    color = Color(0xFF4CAF50), // 緑色
+                    strokeWidth = 8.dp
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "${(progress * 100).toInt()}%",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = when {
+                        progress < 0.5f -> "Creating composition..."
+                        progress < 0.9f -> "Encoding video..."
+                        else -> "Saving to gallery..."
+                    },
+                    color = Color.Gray,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+/**
+ * エクスポート成功ダイアログ
+ *
+ * Section_5b参考: 保存完了通知
+ *
+ * @param onDismiss 閉じる時のコールバック
+ */
+@Composable
+fun ExportSuccessDialog(
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "✅",
+                    style = MaterialTheme.typography.titleLarge
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "Export Complete")
+            }
+        },
+        text = {
+            Text(text = "Video has been saved to your gallery in Movies/ClipFlow folder.")
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("OK")
             }
         }
     )

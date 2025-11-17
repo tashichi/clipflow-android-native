@@ -1,7 +1,11 @@
 package com.tashichi.clipflow.ui.viewmodel
 
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.lifecycle.ViewModel
@@ -15,13 +19,16 @@ import androidx.media3.transformer.Composition
 import com.tashichi.clipflow.data.model.Project
 import com.tashichi.clipflow.data.model.SegmentTimeRange
 import com.tashichi.clipflow.data.model.VideoSegment
+import com.tashichi.clipflow.data.repository.ProjectRepository
 import com.tashichi.clipflow.util.VideoComposer
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -51,6 +58,9 @@ class PlayerViewModel : ViewModel() {
 
     // Context（ApplicationContextを使用）
     private var _context: Context? = null
+
+    // ProjectRepository（永続化用）
+    private var repository: ProjectRepository? = null
 
     // ExoPlayer インスタンス
     private var _exoPlayer: ExoPlayer? = null
@@ -100,6 +110,17 @@ class PlayerViewModel : ViewModel() {
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    // --- エクスポート状態 ---
+
+    private val _isExporting = MutableStateFlow(false)
+    val isExporting: StateFlow<Boolean> = _isExporting.asStateFlow()
+
+    private val _exportProgress = MutableStateFlow(0f)
+    val exportProgress: StateFlow<Float> = _exportProgress.asStateFlow()
+
+    private val _exportSuccess = MutableStateFlow(false)
+    val exportSuccess: StateFlow<Boolean> = _exportSuccess.asStateFlow()
+
     // シームレス再生を使用するか
     private val _useSeamlessPlayback = MutableStateFlow(true)
 
@@ -114,6 +135,7 @@ class PlayerViewModel : ViewModel() {
     fun initialize(context: Context) {
         _context = context.applicationContext
         videoComposer = VideoComposer(context.applicationContext)
+        repository = ProjectRepository(context.applicationContext)
         Log.d(TAG, "PlayerViewModel initialized")
         logMemoryUsage()
     }
@@ -555,14 +577,16 @@ class PlayerViewModel : ViewModel() {
      * セグメントを削除
      *
      * iOS版参考: PlayerView.swift:1125-1186 (handleSegmentDeletion)
+     * Section_5b参考: deleteSegment フロー
      *
      * 処理フロー:
      * 1. シームレス再生中の場合、個別再生に切り替え
      * 2. セグメントを削除（Projectから）
-     * 3. 0.1秒後、プロジェクトの更新を確認
-     * 4. currentSegmentIndexを調整（範囲外にならないように）
-     * 5. プレイヤーを再読み込み
-     * 6. 元がシームレス再生なら、0.3秒後に再度シームレス再生に戻る
+     * 3. ファイルを物理削除
+     * 4. ProjectRepositoryで永続化
+     * 5. currentSegmentIndexを調整（範囲外にならないように）
+     * 6. プレイヤーを再読み込み
+     * 7. 元がシームレス再生なら、0.3秒後に再度シームレス再生に戻る
      *
      * @param segment 削除するセグメント
      * @param onDeleted 削除完了時のコールバック（更新されたProjectを渡す）
@@ -570,6 +594,7 @@ class PlayerViewModel : ViewModel() {
     fun deleteSegment(segment: VideoSegment, onDeleted: (Project) -> Unit) {
         val context = _context ?: return
         val currentProject = _project.value ?: return
+        val repo = repository ?: return
 
         viewModelScope.launch {
             try {
@@ -578,6 +603,8 @@ class PlayerViewModel : ViewModel() {
                     _errorMessage.value = "Cannot delete the last segment"
                     return@launch
                 }
+
+                Log.d(TAG, "Deleting segment: ${segment.id} (order: ${segment.order})")
 
                 // シームレス再生を一時停止
                 val wasUsingSeamlessPlayback = _useSeamlessPlayback.value
@@ -588,15 +615,25 @@ class PlayerViewModel : ViewModel() {
                 // プレイヤーを停止
                 _exoPlayer?.pause()
 
-                // セグメントを削除
+                // セグメントを削除（orderを自動リナンバリング）
                 val updatedProject = currentProject.deleteSegment(segment)
 
-                // ファイルを削除
+                // ファイルを物理削除
                 val file = File(context.filesDir, segment.uri)
                 if (file.exists()) {
-                    file.delete()
-                    Log.d(TAG, "Deleted segment file: ${segment.uri}")
+                    val deleted = file.delete()
+                    if (deleted) {
+                        Log.d(TAG, "Deleted segment file: ${segment.uri}")
+                    } else {
+                        Log.w(TAG, "Failed to delete file: ${segment.uri}")
+                    }
+                } else {
+                    Log.w(TAG, "File not found: ${segment.uri}")
                 }
+
+                // ProjectRepositoryで永続化
+                repo.updateProject(updatedProject)
+                Log.d(TAG, "Project persisted to repository")
 
                 // プロジェクトを更新
                 _project.value = updatedProject
@@ -627,7 +664,7 @@ class PlayerViewModel : ViewModel() {
                 // トーストを表示
                 showToast("Segment deleted")
 
-                Log.d(TAG, "Segment deleted successfully")
+                Log.d(TAG, "Segment deleted successfully. Remaining: ${newSegmentCount}")
 
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to delete segment", e)
@@ -655,6 +692,178 @@ class PlayerViewModel : ViewModel() {
      */
     fun clearError() {
         _errorMessage.value = null
+    }
+
+    /**
+     * エクスポート成功状態をクリア
+     */
+    fun clearExportSuccess() {
+        _exportSuccess.value = false
+    }
+
+    /**
+     * プロジェクトをギャラリーにエクスポート
+     *
+     * Section_5b参考: エクスポートフロー
+     * iOS版参考: PlayerView.swift exportVideo()
+     *
+     * 処理フロー:
+     * 1. Composition を作成
+     * 2. 一時ファイルに MP4 をエクスポート
+     * 3. MediaStore（ギャラリー）に保存
+     * 4. 一時ファイルを削除
+     * 5. 完了通知
+     */
+    fun exportToGallery() {
+        val context = _context ?: return
+        val currentProject = _project.value ?: return
+        val composer = videoComposer ?: return
+
+        if (_isExporting.value) {
+            Log.w(TAG, "Export already in progress")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                _isExporting.value = true
+                _exportProgress.value = 0f
+                _exportSuccess.value = false
+
+                Log.d(TAG, "Starting export for project: ${currentProject.name}")
+
+                // 1. Composition を作成
+                Log.d(TAG, "Creating composition for export...")
+                val comp = composer.createComposition(currentProject) { processed, total ->
+                    // Composition作成の進捗 (0-50%)
+                    _exportProgress.value = (processed.toFloat() / total.toFloat()) * 0.5f
+                }
+
+                if (comp == null) {
+                    _errorMessage.value = "Failed to create composition for export"
+                    _isExporting.value = false
+                    return@launch
+                }
+
+                Log.d(TAG, "Composition created for export")
+
+                // 2. 一時ファイルに MP4 をエクスポート
+                val timestamp = System.currentTimeMillis()
+                val tempFile = File(context.cacheDir, "export_${timestamp}.mp4")
+                temporaryFiles.add(tempFile)
+
+                Log.d(TAG, "Exporting to temp file: ${tempFile.name}")
+
+                val exportSuccess = composer.exportComposition(comp, tempFile) { progress ->
+                    // Transformer の進捗 (50-90%)
+                    _exportProgress.value = 0.5f + (progress * 0.4f)
+                }
+
+                if (!exportSuccess) {
+                    _errorMessage.value = "Failed to export video"
+                    _isExporting.value = false
+                    tempFile.delete()
+                    return@launch
+                }
+
+                Log.d(TAG, "Export to temp file completed")
+
+                // 3. MediaStore（ギャラリー）に保存
+                val displayName = "ClipFlow_${currentProject.name}_${timestamp}.mp4"
+                val savedUri = saveToMediaStore(context, tempFile, displayName)
+
+                if (savedUri == null) {
+                    _errorMessage.value = "Failed to save to gallery"
+                    _isExporting.value = false
+                    tempFile.delete()
+                    return@launch
+                }
+
+                Log.d(TAG, "Saved to gallery: $savedUri")
+
+                // 4. 一時ファイルを削除
+                tempFile.delete()
+                temporaryFiles.remove(tempFile)
+                Log.d(TAG, "Temp file cleaned up")
+
+                // 5. 完了
+                _exportProgress.value = 1.0f
+                _exportSuccess.value = true
+                _isExporting.value = false
+
+                showToast("Video exported to gallery")
+                Log.d(TAG, "Export completed successfully")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Export failed", e)
+                _errorMessage.value = "Export failed: ${e.message}"
+                _isExporting.value = false
+                _exportProgress.value = 0f
+            }
+        }
+    }
+
+    /**
+     * ファイルを MediaStore（ギャラリー）に保存
+     *
+     * Section_5b参考: MediaStore への保存（Android 10+）
+     *
+     * @param context コンテキスト
+     * @param sourceFile ソースファイル
+     * @param displayName 表示名
+     * @return 保存先URI（失敗時はnull）
+     */
+    private suspend fun saveToMediaStore(
+        context: Context,
+        sourceFile: File,
+        displayName: String
+    ): Uri? = withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
+
+        // ContentValues を設定
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            put(
+                MediaStore.Video.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_MOVIES + "/ClipFlow"
+            )
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+            }
+        }
+
+        try {
+            // URI を作成
+            val uri = resolver.insert(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                contentValues
+            ) ?: throw Exception("Failed to create MediaStore entry")
+
+            Log.d(TAG, "MediaStore URI created: $uri")
+
+            // ファイルをコピー
+            resolver.openOutputStream(uri)?.use { outputStream ->
+                sourceFile.inputStream().use { inputStream ->
+                    val bytesCopied = inputStream.copyTo(outputStream)
+                    Log.d(TAG, "Copied $bytesCopied bytes to MediaStore")
+                }
+            } ?: throw Exception("Failed to open output stream")
+
+            // IS_PENDING を解除（Android 10+）
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentValues.clear()
+                contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+                resolver.update(uri, contentValues, null, null)
+                Log.d(TAG, "IS_PENDING cleared")
+            }
+
+            uri
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save to MediaStore", e)
+            null
+        }
     }
 
     /**
@@ -688,6 +897,7 @@ class PlayerViewModel : ViewModel() {
 
         // 4. 参照をクリア
         videoComposer = null
+        repository = null
         _context = null
 
         // 5. GCを促進
