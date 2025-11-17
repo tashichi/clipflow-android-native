@@ -291,43 +291,55 @@ class PlayerViewModel : ViewModel() {
         val context = _context ?: return
         val player = _exoPlayer ?: return
 
-        Log.d(TAG, "Loading segments to player...")
+        Log.d(TAG, "🔄 Loading segments to player...")
+        Log.d(TAG, "   Context filesDir: ${context.filesDir.absolutePath}")
 
         val sortedSegments = project.getSortedSegments()
-        Log.d(TAG, "Total segments to load: ${sortedSegments.size}")
+        Log.d(TAG, "📊 Total segments to load: ${sortedSegments.size}")
 
         val mediaItems = sortedSegments.mapIndexedNotNull { index, segment ->
+            Log.d(TAG, "   [Segment $index] URI: ${segment.uri}")
+
             val file = File(context.filesDir, segment.uri)
+            Log.d(TAG, "   [Segment $index] Full path: ${file.absolutePath}")
+            Log.d(TAG, "   [Segment $index] File exists: ${file.exists()}")
+
             if (file.exists()) {
-                Log.d(TAG, "Segment $index: File exists (${file.length()} bytes)")
+                Log.d(TAG, "   [Segment $index] ✅ File exists (${file.length()} bytes)")
                 try {
                     val mediaItem = MediaItem.fromUri(Uri.fromFile(file))
-                    Log.d(TAG, "Segment $index: MediaItem created successfully")
+                    Log.d(TAG, "   [Segment $index] ✅ MediaItem created: ${mediaItem.mediaId}")
                     mediaItem
                 } catch (e: Exception) {
-                    Log.e(TAG, "Segment $index: Failed to create MediaItem", e)
+                    Log.e(TAG, "   [Segment $index] ❌ Failed to create MediaItem: ${e.message}", e)
                     null
                 }
             } else {
-                Log.w(TAG, "Segment $index: File not found: ${segment.uri}")
+                Log.w(TAG, "   [Segment $index] ❌ File NOT found: ${segment.uri}")
+                Log.w(TAG, "   [Segment $index] Expected path: ${file.absolutePath}")
                 null
             }
         }
 
+        Log.d(TAG, "📦 Valid media items created: ${mediaItems.size}/${sortedSegments.size}")
+
         if (mediaItems.isEmpty()) {
-            Log.e(TAG, "No valid media items to play")
+            Log.e(TAG, "❌ No valid media items to play!")
             _errorMessage.value = "No valid segments to play"
             return
         }
 
-        Log.d(TAG, "Setting ${mediaItems.size} media items to player...")
+        Log.d(TAG, "🎬 Setting ${mediaItems.size} media items to player...")
         try {
+            Log.d(TAG, "   Calling player.setMediaItems()...")
             player.setMediaItems(mediaItems)
-            Log.d(TAG, "Preparing player...")
+            Log.d(TAG, "   ✅ setMediaItems() completed")
+
+            Log.d(TAG, "   Calling player.prepare()...")
             player.prepare()
-            Log.d(TAG, "Player prepared successfully")
+            Log.d(TAG, "   ✅ Player prepared successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to prepare player", e)
+            Log.e(TAG, "❌ Failed to prepare player: ${e.message}", e)
             _errorMessage.value = "Failed to prepare player: ${e.message}"
         }
     }
