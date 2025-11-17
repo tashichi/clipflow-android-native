@@ -22,6 +22,8 @@ import com.tashichi.clipflow.ui.screen.PlayerScreen
 import com.tashichi.clipflow.ui.screen.ProjectListScreen
 import com.tashichi.clipflow.ui.theme.ClipFlowTheme
 import com.tashichi.clipflow.ui.viewmodel.ProjectListViewModel
+import com.tashichi.clipflow.util.DebugLogger
+import android.util.Log
 
 /**
  * MainActivity - ClipFlow Androidアプリのエントリーポイント
@@ -50,8 +52,20 @@ import com.tashichi.clipflow.ui.viewmodel.ProjectListViewModel
  * - Android: Compose Navigation (状態管理による画面切り替え)
  */
 class MainActivity : ComponentActivity() {
+
+    companion object {
+        private const val TAG = "MainActivity"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        Log.i(TAG, "ClipFlow App onCreate")
+
+        // デバッグセッション開始（Phase 6: 統合テスト用）
+        DebugLogger.startSession()
+        DebugLogger.logDeviceCapabilities(applicationContext)
+        DebugLogger.logIntegrationTestChecklist()
 
         // Edge-to-edge表示を有効化（iOS版のfullScreenCoverに相当）
         enableEdgeToEdge()
@@ -59,6 +73,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             ClipFlowApp()
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.i(TAG, "ClipFlow App onDestroy")
+        DebugLogger.endSession()
     }
 }
 
@@ -91,6 +111,17 @@ fun ClipFlowApp() {
 
     // iOS版: @State var selectedSegmentIndex: Int = 0
     var selectedSegmentIndex by remember { mutableStateOf(0) }
+
+    // 画面遷移ログ（Phase 6: 統合テスト用）
+    LaunchedEffect(currentScreen) {
+        val screenName = when (currentScreen) {
+            AppScreen.PROJECTS -> "ProjectListScreen"
+            AppScreen.CAMERA -> "CameraScreen"
+            AppScreen.PLAYER -> "PlayerScreen"
+        }
+        Log.i("Navigation", "Screen transition to: $screenName")
+        DebugLogger.startOperation("Screen: $screenName")
+    }
 
     /**
      * テーマ設定: Dark theme (Material Design 3)
