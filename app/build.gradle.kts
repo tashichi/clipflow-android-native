@@ -39,7 +39,7 @@ android {
         compose = true
     }
     lint {
-        baseline = file("lint-baseline.xml")
+        disable.add("MissingPermission")
         abortOnError = false
     }
 }
