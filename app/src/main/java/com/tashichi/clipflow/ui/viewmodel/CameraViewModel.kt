@@ -1,5 +1,6 @@
 package com.tashichi.clipflow.ui.viewmodel
 
+import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
 import android.util.Log
@@ -143,6 +144,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
      * @param context アプリケーションコンテキスト
      * @param onSegmentRecorded セグメント録画完了時のコールバック
      */
+    @SuppressLint("MissingPermission")
     fun startRecording(
         context: Context,
         onSegmentRecorded: (VideoSegment) -> Unit
