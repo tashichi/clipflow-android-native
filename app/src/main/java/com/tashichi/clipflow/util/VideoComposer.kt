@@ -217,6 +217,9 @@ class VideoComposer(private val context: Context) {
 
             // Composition を作成
             // Section_7参考: 幅・高さの検証を強化（-1チェック）
+            Log.d(TAG, "[DEBUG BEFORE] firstWidth=$firstWidth, firstHeight=$firstHeight")
+            Log.d(TAG, "[DEBUG BEFORE] Segments processed: ${editedMediaItems.size}")
+
             val displayWidth = if (firstWidth != null && firstWidth > 0) firstWidth else 1920
             val displayHeight = if (firstHeight != null && firstHeight > 0) firstHeight else 1080
 
@@ -226,6 +229,7 @@ class VideoComposer(private val context: Context) {
                 .setEffects(
                     // 回転補正が必要な場合は Effects を設定
                     if (firstRotation != null && firstRotation != 0) {
+                        Log.d(TAG, "[DEBUG FINAL] displayWidth=$displayWidth, displayHeight=$displayHeight")
                         Effects(
                             /* audioProcessors = */ emptyList(),
                             /* videoEffects = */ listOf(
