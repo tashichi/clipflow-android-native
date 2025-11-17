@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
+import android.os.StatFs
 
 /**
  * CameraViewModel - カメラ撮影機能のビジネスロジックを管理
@@ -172,6 +173,13 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
+        // ストレージ容量チェック（10MB必要）
+        if (!checkStorageBeforeRecording(context)) {
+            Log.e(TAG, "Insufficient storage space")
+            showToast("Storage space is low")
+            return
+        }
+
         try {
             _isRecording.value = true
             Log.d(TAG, "[TIMER] Recording requested at ${System.currentTimeMillis()}")
@@ -225,8 +233,15 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
                                 _isRecording.value = false
                             } else {
                                 val fileSize = if (outputFile.exists()) outputFile.length() else 0
+                                val fileSizeKB = fileSize / 1024
+                                val fileSizeMB = fileSizeKB / 1024.0
                                 Log.d(TAG, "[SUCCESS] Recording saved: ${outputFile.absolutePath}")
-                                Log.d(TAG, "[SUCCESS] File size: $fileSize bytes")
+                                Log.d(TAG, "[SUCCESS] File size: ${fileSizeMB}MB (${fileSizeKB}KB)")
+
+                                // ファイルサイズ検証（正常範囲: 0.5MB ~ 2.0MB）
+                                if (!validateSegmentFileSize(outputFile)) {
+                                    Log.w(TAG, "[WARNING] Unusual file size: ${fileSizeMB}MB")
+                                }
 
                                 // VideoSegmentを作成
                                 val facing = if (_cameraSelector.value == CameraSelector.DEFAULT_BACK_CAMERA) {
@@ -386,6 +401,62 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
             delay(1500) // 1.5秒間表示
             _showSuccessToast.value = false
         }
+    }
+
+    /**
+     * ストレージ容量チェック
+     *
+     * Section_5a参考: 録画前にストレージ容量を確認
+     *
+     * @param context アプリケーションコンテキスト
+     * @return 十分な容量があればtrue
+     */
+    private fun checkStorageBeforeRecording(context: Context): Boolean {
+        val filesDir = context.filesDir
+        val statFs = StatFs(filesDir.absolutePath)
+
+        val availableBytes = statFs.availableBytes
+        val availableMB = availableBytes / 1024 / 1024
+
+        Log.d(TAG, "Available storage: ${availableMB}MB")
+
+        // 1セグメント ≈ 1-2MB、余裕を持って10MB必要
+        val requiredMB = 10L
+        if (availableMB < requiredMB) {
+            Log.w(TAG, "Low storage space: ${availableMB}MB (need ${requiredMB}MB)")
+            return false
+        }
+
+        return true
+    }
+
+    /**
+     * セグメントファイルサイズ検証
+     *
+     * Section_5a参考: 正常範囲は0.5MB ~ 2.0MB（1秒の動画）
+     *
+     * @param file 検証対象のファイル
+     * @return 正常範囲内ならtrue
+     */
+    private fun validateSegmentFileSize(file: File): Boolean {
+        if (!file.exists()) {
+            Log.e(TAG, "File does not exist: ${file.name}")
+            return false
+        }
+
+        val fileSizeBytes = file.length()
+        val fileSizeMB = fileSizeBytes / 1024.0 / 1024.0
+
+        // 正常範囲: 0.5MB ~ 2.0MB
+        val isValidSize = fileSizeMB in 0.5..2.0
+
+        if (isValidSize) {
+            Log.d(TAG, "File size validation passed: ${String.format("%.2f", fileSizeMB)}MB")
+        } else {
+            Log.w(TAG, "Unusual file size: ${String.format("%.2f", fileSizeMB)}MB (expected 0.5-2.0MB)")
+        }
+
+        return isValidSize
     }
 
     /**
