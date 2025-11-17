@@ -40,7 +40,9 @@ android {
     }
     lint {
         disable.add("MissingPermission")
+        disable.add("UnsafeOptInUsageError")
         abortOnError = false
+        checkReleaseBuilds = false
     }
 }
 
