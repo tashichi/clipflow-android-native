@@ -1,5 +1,6 @@
 package com.tashichi.clipflow.ui.screen
 
+import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -28,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import android.util.Log
@@ -259,6 +261,7 @@ fun PlayerScreen(
  * @param exoPlayer ExoPlayerインスタンス
  * @param modifier Modifier
  */
+@OptIn(UnstableApi::class)
 @Composable
 fun ExoPlayerView(
     exoPlayer: androidx.media3.exoplayer.ExoPlayer?,

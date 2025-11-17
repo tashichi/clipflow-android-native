@@ -4,9 +4,11 @@ import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
@@ -33,6 +35,7 @@ import kotlin.coroutines.suspendCoroutine
  * iOS の AVComposition に相当する機能を Media3 で実装
  * 複数の1秒動画セグメントをギャップレスに再生・エクスポート可能にする
  */
+@OptIn(UnstableApi::class)
 class VideoComposer(private val context: Context) {
 
     companion object {

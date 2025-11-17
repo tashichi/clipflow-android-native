@@ -3,10 +3,12 @@ package com.tashichi.clipflow.ui.viewmodel
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.transformer.Composition
@@ -39,6 +41,7 @@ import java.io.File
  * - プログレス表示（ローディング、再生時刻）
  * - エクスポート機能
  */
+@OptIn(UnstableApi::class)
 class PlayerViewModel : ViewModel() {
 
     companion object {
