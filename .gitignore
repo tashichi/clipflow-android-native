@@ -15,7 +15,3 @@ local.properties
 # OS-specific files
 .DS_Store
 Thumbs.db
-gradle/libs.versions.toml
-gradle.properties
-gradlew
-gradlew.bat

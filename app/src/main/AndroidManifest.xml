@@ -11,6 +11,8 @@
     <!-- ストレージ権限（API 28以下） -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <!-- メディアアクセス権限（API 33以降） -->
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
