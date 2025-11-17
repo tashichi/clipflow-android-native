@@ -232,6 +232,8 @@ class PlayerViewModel : ViewModel() {
         val currentProject = _project.value ?: return
         val composer = videoComposer ?: return
 
+        Log.d(TAG, "🚀 loadComposition() started")
+
         viewModelScope.launch {
             try {
                 _isLoading.value = true
@@ -239,28 +241,37 @@ class PlayerViewModel : ViewModel() {
                 _processedSegments.value = 0
 
                 Log.d(TAG, "Creating composition...")
+                Log.d(TAG, "  Calling composer.createComposition()...")
 
                 // Compositionを作成（進捗付き）
                 composition = composer.createComposition(currentProject) { processed, total ->
+                    Log.d(TAG, "  Progress: $processed / $total")
                     _processedSegments.value = processed
                     // 最大80%まで（iOS版の仕様に合わせる）
                     _loadingProgress.value = (processed.toFloat() / total.toFloat()) * 0.8f
                 }
 
+                Log.d(TAG, "  ✅ createComposition() returned: $composition")
+
                 if (composition == null) {
+                    Log.e(TAG, "❌ composition is null!")
                     _errorMessage.value = "Failed to create composition"
                     _isLoading.value = false
                     return@launch
                 }
 
+                Log.d(TAG, "✅ Composition validation passed")
                 Log.d(TAG, "Composition created successfully")
 
                 // セグメント時間範囲を取得
+                Log.d(TAG, "  Getting segment time ranges...")
                 segmentTimeRanges = composer.getSegmentTimeRanges(currentProject)
-                Log.d(TAG, "Segment time ranges: ${segmentTimeRanges.size}")
+                Log.d(TAG, "✅ Segment time ranges: ${segmentTimeRanges.size}")
 
                 // プレイヤーにMediaItemsを設定（個別セグメントとして再生）
+                Log.d(TAG, "🎬 Calling loadSegmentsToPlayer()...")
                 loadSegmentsToPlayer(currentProject)
+                Log.d(TAG, "✅ loadSegmentsToPlayer() completed")
 
                 // 総再生時間を設定
                 val totalDuration = composer.getTotalDuration(currentProject)
@@ -275,7 +286,9 @@ class PlayerViewModel : ViewModel() {
                 _isLoading.value = false
 
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to load composition", e)
+                Log.e(TAG, "❌ Exception in loadComposition", e)
+                Log.e(TAG, "  Message: ${e.message}")
+                Log.e(TAG, "  Type: ${e.javaClass.simpleName}")
                 _errorMessage.value = "Failed to load composition: ${e.message}"
                 _isLoading.value = false
             }
