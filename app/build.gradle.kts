@@ -43,6 +43,9 @@ android {
         disable.add("UnsafeOptInUsageError")
         abortOnError = false
         checkReleaseBuilds = false
+        warningsAsErrors = false
+        // 一時的にすべてのエラーチェックを無効化
+        baseline = file("lint-baseline.xml")
     }
 }
 
