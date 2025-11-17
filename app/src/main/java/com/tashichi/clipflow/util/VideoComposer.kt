@@ -88,7 +88,7 @@ class VideoComposer(private val context: Context) {
                 var isValidVideo = false
                 try {
                     Log.d(TAG, "[Segment $index] Setting data source...")
-                    retriever.setDataSource(file.absolutePath)
+                    retriever.setDataSource(context, Uri.fromFile(file))
                     Log.d(TAG, "[Segment $index] Data source set successfully")
 
                     // 必須メタデータを取得・検証
