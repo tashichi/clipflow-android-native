@@ -67,6 +67,10 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
 
+    // デバッグログ: PlayerScreen が呼び出されたことを確認
+    Log.d("PlayerScreen", "🚀 PlayerScreen composable called with project: ${project.name}")
+    Log.d("PlayerScreen", "  Project segments: ${project.segmentCount}")
+
     // カメラリソースを明示的に解放（再生時のリソース競合を防ぐ）
     DisposableEffect(Unit) {
         Log.d("PlayerScreen", "Releasing camera resources to prevent conflicts")
@@ -93,12 +97,18 @@ fun PlayerScreen(
 
     // ViewModelを初期化
     LaunchedEffect(Unit) {
+        Log.d("PlayerScreen", "🚀 Calling viewModel.initialize(context)")
         viewModel.initialize(context)
+        Log.d("PlayerScreen", "✅ viewModel.initialize(context) completed")
     }
 
     // ViewModelにプロジェクトを設定
     LaunchedEffect(project) {
+        Log.d("PlayerScreen", "🚀 Calling viewModel.setProject(project)")
+        Log.d("PlayerScreen", "  Project name: ${project.name}")
+        Log.d("PlayerScreen", "  Segment count: ${project.segmentCount}")
         viewModel.setProject(project)
+        Log.d("PlayerScreen", "✅ viewModel.setProject(project) completed")
     }
 
     // ViewModel状態
@@ -524,8 +534,11 @@ fun PlaybackControlsView(
         // 再生/一時停止ボタン（大きく青色）
         IconButton(
             onClick = {
-                Log.d("PlayerScreen", "[DEBUG] Play/Pause button clicked!")
+                Log.d("PlayerScreen", "🎬 Play/Pause button clicked!")
+                Log.d("PlayerScreen", "  Current isPlaying state: $isPlaying")
+                Log.d("PlayerScreen", "  Calling onPlayPause()...")
                 onPlayPause()
+                Log.d("PlayerScreen", "  onPlayPause() completed")
             },
             modifier = Modifier
                 .size(80.dp)
