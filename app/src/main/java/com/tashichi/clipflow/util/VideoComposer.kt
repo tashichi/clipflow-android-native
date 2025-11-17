@@ -93,6 +93,8 @@ class VideoComposer(private val context: Context) {
             // EditedMediaItem のリストを作成
             val editedMediaItems = mutableListOf<EditedMediaItem>()
             var firstRotation: Int? = null
+            var firstWidth: Int? = null
+            var firstHeight: Int? = null
             var processedCount = 0
 
             sortedSegments.forEachIndexed { index, segment ->
@@ -149,7 +151,9 @@ class VideoComposer(private val context: Context) {
                         if (index == 0) {
                             val rotation = rotationStr?.toIntOrNull()?.takeIf { it >= 0 } ?: 0
                             firstRotation = rotation
-                            Log.d(TAG, "[Segment $index] First segment rotation: $rotation degrees")
+                            firstWidth = width
+                            firstHeight = height
+                            Log.d(TAG, "[Segment $index] First segment rotation: $rotation degrees, dimensions: ${width}x${height}")
                         }
 
                         isValidVideo = true
@@ -212,6 +216,12 @@ class VideoComposer(private val context: Context) {
             val sequence = EditedMediaItemSequence(editedMediaItems)
 
             // Composition を作成
+            // Section_7参考: 幅・高さの検証を強化（-1チェック）
+            val displayWidth = if (firstWidth != null && firstWidth > 0) firstWidth else 1920
+            val displayHeight = if (firstHeight != null && firstHeight > 0) firstHeight else 1080
+
+            Log.d(TAG, "[DEBUG] Creating Presentation with width=$displayWidth, height=$displayHeight")
+
             val composition = Composition.Builder(listOf(sequence))
                 .setEffects(
                     // 回転補正が必要な場合は Effects を設定
@@ -220,8 +230,8 @@ class VideoComposer(private val context: Context) {
                             /* audioProcessors = */ emptyList(),
                             /* videoEffects = */ listOf(
                                 Presentation.createForWidthAndHeight(
-                                    /* width = */ C.LENGTH_UNSET,
-                                    /* height = */ C.LENGTH_UNSET,
+                                    /* width = */ displayWidth,
+                                    /* height = */ displayHeight,
                                     /* presentationLayout = */ Presentation.LAYOUT_SCALE_TO_FIT
                                 )
                             )
