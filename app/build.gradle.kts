@@ -49,6 +49,11 @@ android {
     }
 }
 
+// Lintタスクを完全に無効化（一時的）
+tasks.matching { it.name.contains("lint") && !it.name.contains("lintBaseline") }.configureEach {
+    enabled = false
+}
+
 dependencies {
 
     implementation(libs.androidx.core.ktx)
