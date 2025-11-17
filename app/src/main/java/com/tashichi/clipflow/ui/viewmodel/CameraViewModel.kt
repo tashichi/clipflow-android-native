@@ -51,6 +51,7 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
 
     // カメラとビデオキャプチャのインスタンス
     private var camera: Camera? = null
+    private var preview: Preview? = null
     private var videoCapture: VideoCapture<Recorder>? = null
     private var recording: Recording? = null
     private var cameraProvider: ProcessCameraProvider? = null
@@ -74,6 +75,9 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     private val _toastMessage = MutableStateFlow("")
     val toastMessage: StateFlow<String> = _toastMessage.asStateFlow()
 
+    private val _isCameraReady = MutableStateFlow(false)
+    val isCameraReady: StateFlow<Boolean> = _isCameraReady.asStateFlow()
+
     /**
      * プロジェクトを設定
      *
@@ -87,43 +91,52 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
      * カメラをセットアップ
      *
      * iOS版参考: VideoManager.setupCamera() (推定実装)
+     * Section_3B-2参考: bindToLifecycle()でライフサイクルに連動
      *
      * @param context アプリケーションコンテキスト
      * @param lifecycleOwner ライフサイクルオーナー
-     * @param preview カメラプレビュー
+     * @param previewUseCase カメラプレビュー
      */
     fun setupCamera(
         context: Context,
         lifecycleOwner: LifecycleOwner,
-        preview: Preview
+        previewUseCase: Preview
     ) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
         cameraProviderFuture.addListener({
             try {
                 cameraProvider = cameraProviderFuture.get()
+                Log.d(TAG, "CameraProvider initialized")
 
                 // VideoCapture use case を作成
                 val recorder = Recorder.Builder()
                     .setQualitySelector(QualitySelector.from(Quality.HD))
                     .build()
 
-                videoCapture = VideoCapture.withOutput(recorder)
+                val newVideoCapture = VideoCapture.withOutput(recorder)
 
-                // 既存のバインディングを解除
+                // 既存のバインディングを解除（rebind前の重要なステップ）
                 cameraProvider?.unbindAll()
 
-                // カメラをバインド
+                // カメラをバインド（ライフサイクルに連動）
                 camera = cameraProvider?.bindToLifecycle(
                     lifecycleOwner,
                     _cameraSelector.value,
-                    preview,
-                    videoCapture
+                    previewUseCase,
+                    newVideoCapture
                 )
 
+                // 参照を保持（クリーンアップ用）
+                preview = previewUseCase
+                videoCapture = newVideoCapture
+                _isCameraReady.value = true
+
                 Log.d(TAG, "Camera setup completed successfully")
+                Log.d(TAG, "Camera bound to lifecycle with ${_cameraSelector.value}")
             } catch (e: Exception) {
                 Log.e(TAG, "Camera setup failed", e)
+                _isCameraReady.value = false
             }
         }, ContextCompat.getMainExecutor(context))
     }
@@ -376,13 +389,79 @@ class CameraViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
+     * 画面離脱時のクリーンアップ
+     *
+     * Section_3B-2参考: DisposableEffect { onDispose }パターン
+     * CameraScreenのDisposableEffectから呼び出される
+     */
+    fun releaseCamera() {
+        Log.d(TAG, "releaseCamera() - Releasing camera resources for screen transition")
+
+        // トーチをオフにする
+        if (_isTorchOn.value) {
+            camera?.cameraControl?.enableTorch(false)
+            _isTorchOn.value = false
+            Log.d(TAG, "Torch turned off")
+        }
+
+        // 特定のユースケースのみをアンバインド
+        preview?.let {
+            cameraProvider?.unbind(it)
+            Log.d(TAG, "Preview unbound")
+        }
+        videoCapture?.let {
+            cameraProvider?.unbind(it)
+            Log.d(TAG, "VideoCapture unbound")
+        }
+
+        // 参照をクリア（cameraProviderは保持）
+        camera = null
+        preview = null
+        videoCapture = null
+        _isCameraReady.value = false
+
+        Log.d(TAG, "Camera resources released")
+    }
+
+    /**
      * ViewModelが破棄される時にリソースを解放
+     *
+     * Section_3B-2参考:
+     * - unbindAll()ではなく特定のユースケースのみをアンバインド
+     * - トーチをオフにしてからリソース解放
      */
     override fun onCleared() {
         super.onCleared()
+        Log.d(TAG, "onCleared() - Cleaning up camera resources")
+
+        // 1. 録画を停止
         stopRecording()
-        cameraProvider?.unbindAll()
+
+        // 2. トーチをオフにする（重要: 画面離脱時）
+        if (_isTorchOn.value) {
+            camera?.cameraControl?.enableTorch(false)
+            _isTorchOn.value = false
+            Log.d(TAG, "Torch turned off on cleanup")
+        }
+
+        // 3. 特定のユースケースのみをアンバインド（unbindAll()ではない）
+        // これにより他の画面のカメラに影響を与えない
+        preview?.let {
+            cameraProvider?.unbind(it)
+            Log.d(TAG, "Preview unbound")
+        }
+        videoCapture?.let {
+            cameraProvider?.unbind(it)
+            Log.d(TAG, "VideoCapture unbound")
+        }
+
+        // 4. 参照をクリア
         camera = null
+        preview = null
         videoCapture = null
+        cameraProvider = null
+        _isCameraReady.value = false
+
+        Log.d(TAG, "Camera resources cleaned up successfully")
     }
 }

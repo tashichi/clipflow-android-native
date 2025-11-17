@@ -71,24 +71,13 @@ fun CameraScreen(
     }
 
     // カメラリソースを適切に解放（画面離脱時）
+    // Section_3B-2参考: DisposableEffect { onDispose }パターン
+    // unbindAll()ではなく、ViewModelを通じて特定のユースケースのみをアンバインド
     DisposableEffect(Unit) {
         onDispose {
-            Log.d("CameraScreen", "Disposing CameraScreen - unbinding camera")
-            try {
-                // カメラプロバイダーを取得して全てアンバインド
-                val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(context)
-                cameraProviderFuture.addListener({
-                    try {
-                        val cameraProvider = cameraProviderFuture.get()
-                        cameraProvider.unbindAll()
-                        Log.d("CameraScreen", "Camera unbound successfully")
-                    } catch (e: Exception) {
-                        Log.e("CameraScreen", "Failed to unbind camera", e)
-                    }
-                }, androidx.core.content.ContextCompat.getMainExecutor(context))
-            } catch (e: Exception) {
-                Log.e("CameraScreen", "Error disposing camera resources", e)
-            }
+            Log.d("CameraScreen", "Disposing CameraScreen - releasing camera via ViewModel")
+            viewModel.releaseCamera()
+            Log.d("CameraScreen", "Camera released successfully")
         }
     }
 

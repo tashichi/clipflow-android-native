@@ -69,29 +69,9 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
 
-    // カメラリソースを明示的に解放（再生時のリソース競合を防ぐ）
-    DisposableEffect(Unit) {
-        Log.d("PlayerScreen", "Releasing camera resources to prevent conflicts")
-        try {
-            // ProcessCameraProviderを取得して全てのカメラをアンバインド
-            val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(context)
-            cameraProviderFuture.addListener({
-                try {
-                    val cameraProvider = cameraProviderFuture.get()
-                    cameraProvider.unbindAll()
-                    Log.d("PlayerScreen", "Camera resources released successfully")
-                } catch (e: Exception) {
-                    Log.e("PlayerScreen", "Failed to release camera resources", e)
-                }
-            }, androidx.core.content.ContextCompat.getMainExecutor(context))
-        } catch (e: Exception) {
-            Log.e("PlayerScreen", "Error getting camera provider", e)
-        }
-
-        onDispose {
-            Log.d("PlayerScreen", "PlayerScreen disposed")
-        }
-    }
+    // Section_3B-2参考: PlayerScreenではカメラリソースを直接操作しない
+    // カメラリソースはCameraViewModelが管理するため、unbindAll()は不要
+    // unbindAll()を呼ぶと他の画面のカメラに影響を与える可能性がある
 
     // ViewModelを初期化
     LaunchedEffect(Unit) {
