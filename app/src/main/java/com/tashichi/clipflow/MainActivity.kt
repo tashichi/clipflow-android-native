@@ -121,23 +121,25 @@ fun ClipFlowApp() {
                      * iOS版参考: ProjectListView.swift
                      * - プロジェクト一覧表示
                      * - 新規プロジェクト作成
-                     * - プロジェクト選択 → Camera画面へ遷移
-                     * - プロジェクトタップ（セグメントがある場合）→ Player画面へ遷移
+                     * - REC/Play/Exportボタンによる画面遷移
                      */
                     ProjectListScreen(
                         viewModel = projectListViewModel,
-                        onProjectSelected = { project ->
+                        onRecordProject = { project ->
+                            // RECボタン → Camera画面へ
                             currentProject = project
-
-                            // プロジェクトにセグメントがある場合はPlayer画面へ
-                            // セグメントがない場合はCamera画面へ
-                            // iOS版参考: MainView.swift (NavigationLink判定)
-                            if (project.segments.isNotEmpty()) {
-                                selectedSegmentIndex = 0
-                                currentScreen = AppScreen.PLAYER
-                            } else {
-                                currentScreen = AppScreen.CAMERA
-                            }
+                            currentScreen = AppScreen.CAMERA
+                        },
+                        onPlayProject = { project ->
+                            // Playボタン → Player画面へ
+                            currentProject = project
+                            selectedSegmentIndex = 0
+                            currentScreen = AppScreen.PLAYER
+                        },
+                        onExportProject = { project ->
+                            // Exportボタン → エクスポート処理
+                            // TODO: エクスポート機能を実装（別タスク）
+                            currentProject = project
                         }
                     )
                 }

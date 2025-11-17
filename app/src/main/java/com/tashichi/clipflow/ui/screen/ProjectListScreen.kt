@@ -48,7 +48,10 @@ import java.util.*
 @Composable
 fun ProjectListScreen(
     viewModel: ProjectListViewModel = viewModel(),
-    onProjectSelected: (Project) -> Unit
+    onProjectSelected: (Project) -> Unit = {},
+    onRecordProject: (Project) -> Unit = onProjectSelected,
+    onPlayProject: (Project) -> Unit = onProjectSelected,
+    onExportProject: (Project) -> Unit = {}
 ) {
     // State
     val projects by viewModel.projects.collectAsState()
@@ -108,6 +111,15 @@ fun ProjectListScreen(
                             },
                             onDelete = {
                                 viewModel.showDeleteConfirmation(project)
+                            },
+                            onRecord = {
+                                onRecordProject(project)
+                            },
+                            onPlay = {
+                                onPlayProject(project)
+                            },
+                            onExport = {
+                                onExportProject(project)
                             }
                         )
                     }
@@ -161,48 +173,49 @@ fun ProjectListScreen(
 /**
  * ヘッダー - アプリ名 + 新規プロジェクトボタン
  * iOS版参考: ProjectListView.swift (navigationTitle + toolbar)
+ * Section_2仕様: タイトル中央 + New Projectボタン（青色）
  */
 @Composable
 fun ProjectListHeader(
     onCreateNewProject: () -> Unit
 ) {
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Black.copy(alpha = 0.9f),
-                        Color.Black.copy(alpha = 0.7f)
-                    )
-                )
-            )
+            .background(Color.Black)
             .padding(horizontal = 20.dp, vertical = 16.dp)
-            .statusBarsPadding()
+            .statusBarsPadding(),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // アプリ名
+        // アプリ名（中央配置）
         Text(
             text = "ClipFlow",
             color = Color.White,
             style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.CenterStart)
+            fontWeight = FontWeight.Bold
         )
 
-        // 新規プロジェクトボタン（右上、緑色）
-        // iOS版: Color.green
-        FloatingActionButton(
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 新規プロジェクトボタン（青色、中央配置）
+        Button(
             onClick = onCreateNewProject,
-            containerColor = Color(0xFF4CAF50), // 緑色
-            contentColor = Color.White,
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .size(56.dp)
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF2196F3) // 青色
+            ),
+            shape = RoundedCornerShape(20.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Add,
-                contentDescription = "New Project",
-                modifier = Modifier.size(28.dp)
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "New Project",
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold
             )
         }
     }
@@ -213,105 +226,177 @@ fun ProjectListHeader(
  * iOS版参考: ProjectListView.swift (List内のNavigationLink)
  *
  * 表示内容:
- * - プロジェクト名
- * - 作成日時
- * - セグメント数（例: "5 segments"）
- * - アクションボタン（名前変更、削除）
+ * - プロジェクト名（タップでリネーム）
+ * - セグメント数と作成日時
+ * - REC / Play / Export ボタン
  */
 @Composable
 fun ProjectCard(
     project: Project,
     onClick: () -> Unit,
     onRename: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onRecord: () -> Unit = {},
+    onPlay: () -> Unit = {},
+    onExport: () -> Unit = {}
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF1E1E1E) // ダークグレー
+            containerColor = Color.Gray.copy(alpha = 0.15f) // 半透明グレー
         ),
         shape = RoundedCornerShape(12.dp),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = 4.dp
-        )
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.Gray.copy(alpha = 0.3f))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            // プロジェクト名
+            // プロジェクト名（タップでリネーム）
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onRename),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = project.name,
                     color = Color.White,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
 
-                // アクションボタン
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // 名前変更ボタン
-                    IconButton(
-                        onClick = onRename,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Rename",
-                            tint = Color(0xFF2196F3), // 青色
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    // 削除ボタン
-                    IconButton(
-                        onClick = onDelete,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = Color(0xFFF44336), // 赤色
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
+                // 編集アイコン（小さめ）
+                Icon(
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Rename",
+                    tint = Color.Gray.copy(alpha = 0.7f),
+                    modifier = Modifier.size(14.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // 作成日時
-            Text(
-                text = formatDate(project.createdAt),
-                color = Color.Gray,
-                style = MaterialTheme.typography.bodySmall
-            )
+            // セグメント数と作成日時
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // セグメント数（黄色）
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "📹",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "${project.segmentCount}s",
+                        color = Color(0xFFFFEB3B), // 黄色
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
 
-            Spacer(modifier = Modifier.height(4.dp))
+                // 作成日時
+                Text(
+                    text = formatShortDate(project.createdAt),
+                    color = Color.Gray,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
 
-            // セグメント数
-            Text(
-                text = if (project.segmentCount == 1) {
-                    "1 segment"
-                } else {
-                    "${project.segmentCount} segments"
-                },
-                color = Color(0xFFFFEB3B), // 黄色（iOS版: Color.yellow）
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
-            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // REC / Play / Export ボタン
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // REC ボタン（赤色）
+                Button(
+                    onClick = onRecord,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFF44336) // 赤色
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    Text(
+                        text = "📷",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Rec",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                // Play ボタン（青色）
+                Button(
+                    onClick = onPlay,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF2196F3) // 青色
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    enabled = project.segmentCount > 0
+                ) {
+                    Text(
+                        text = "▶️",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Play",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                // Export ボタン（オレンジ色）
+                Button(
+                    onClick = onExport,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFFF9800) // オレンジ色
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    enabled = project.segmentCount > 0
+                ) {
+                    Text(
+                        text = "⬆️",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Export",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
         }
     }
 }
@@ -487,5 +572,13 @@ fun RenameProjectDialog(
  */
 private fun formatDate(timestamp: Long): String {
     val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+    return sdf.format(Date(timestamp))
+}
+
+/**
+ * 短い日時フォーマット（MM/dd形式）
+ */
+private fun formatShortDate(timestamp: Long): String {
+    val sdf = SimpleDateFormat("MM/dd", Locale.getDefault())
     return sdf.format(Date(timestamp))
 }

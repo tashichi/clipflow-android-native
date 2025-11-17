@@ -9,8 +9,11 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -264,20 +267,26 @@ fun CameraHeaderView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 戻るボタン
-            IconButton(
+            // 戻るボタン（← Projects）
+            Button(
                 onClick = onBack,
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(
-                        color = Color.Black.copy(alpha = 0.7f),
-                        shape = CircleShape
-                    )
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Black.copy(alpha = 0.7f)
+                ),
+                shape = RoundedCornerShape(15.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = Color.White
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Projects",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
 
@@ -288,12 +297,12 @@ fun CameraHeaderView(
                     .size(40.dp)
                     .background(
                         color = Color.Black.copy(alpha = 0.7f),
-                        shape = CircleShape
+                        shape = RoundedCornerShape(20.dp)
                     )
             ) {
                 Text(
                     text = "🔄",
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.titleMedium,
                     color = Color.White
                 )
             }
@@ -380,58 +389,52 @@ fun CameraControlsView(
             Spacer(modifier = Modifier.size(50.dp))
         }
 
-        // 録画ボタン
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
+        // 録画ボタン（100dp、Section_2仕様）
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(100.dp)
+                .border(
+                    width = 6.dp,
+                    color = Color.Red,
+                    shape = CircleShape
+                )
+                .clip(CircleShape)
+                .background(
+                    color = if (isRecording) Color.Red else Color.White
+                )
+                .clickable(
+                    enabled = !isRecording,
+                    onClick = onRecord
+                )
         ) {
-            // 録画ボタン（円形）
-            IconButton(
-                onClick = onRecord,
-                enabled = !isRecording,
-                modifier = Modifier
-                    .size(80.dp)
-                    .border(
-                        width = 4.dp,
-                        color = if (isRecording) Color.Red else Color.White,
-                        shape = CircleShape
-                    )
-                    .background(
-                        color = if (isRecording) Color.Red.copy(alpha = 0.8f) else Color.Red,
-                        shape = CircleShape
-                    )
-            ) {
-                // 録画中はアニメーション
-                if (isRecording) {
-                    val infiniteTransition = rememberInfiniteTransition(label = "recording")
-                    val alpha by infiniteTransition.animateFloat(
-                        initialValue = 0.5f,
-                        targetValue = 1f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(500),
-                            repeatMode = RepeatMode.Reverse
-                        ),
-                        label = "alpha"
-                    )
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .background(
-                                color = Color.White.copy(alpha = alpha),
-                                shape = CircleShape
-                            )
-                    )
-                }
+            if (isRecording) {
+                // 録画中: "Recording" テキスト（白色、点滅）
+                val infiniteTransition = rememberInfiniteTransition(label = "recording")
+                val alpha by infiniteTransition.animateFloat(
+                    initialValue = 0.7f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(500),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "alpha"
+                )
+                Text(
+                    text = "Recording",
+                    color = Color.White.copy(alpha = alpha),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold
+                )
+            } else {
+                // 待機中: "REC" テキスト（黒色）
+                Text(
+                    text = "REC",
+                    color = Color.Black,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold
+                )
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // RECテキスト
-            Text(
-                text = "REC",
-                color = if (isRecording) Color.Red else Color.White,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold
-            )
         }
 
         // スペーサー（レイアウトバランス用）

@@ -314,31 +314,43 @@ fun PlayerHeaderView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 戻るボタン
-            IconButton(
+            // 戻るボタン（← Back）
+            Button(
                 onClick = onBack,
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(
-                        color = Color.Black.copy(alpha = 0.7f),
-                        shape = CircleShape
-                    )
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.White.copy(alpha = 0.9f)
+                ),
+                shape = RoundedCornerShape(15.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = Color.White
+                    tint = Color.Black,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Back",
+                    color = Color.Black,
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
 
-            // セグメント数表示
+            // セグメント数表示（背景付き）
             if (project != null) {
-                Text(
-                    text = "${currentSegmentIndex + 1} / ${project.segmentCount}",
-                    color = Color.Yellow,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Surface(
+                    color = Color.Black.copy(alpha = 0.8f),
+                    shape = RoundedCornerShape(15.dp)
+                ) {
+                    Text(
+                        text = "${currentSegmentIndex + 1} / ${project.segmentCount}",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
             }
 
             // エクスポートボタン
