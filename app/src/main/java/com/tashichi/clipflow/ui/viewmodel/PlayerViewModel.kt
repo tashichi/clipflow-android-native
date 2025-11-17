@@ -103,6 +103,9 @@ class PlayerViewModel : ViewModel() {
     // シームレス再生を使用するか
     private val _useSeamlessPlayback = MutableStateFlow(true)
 
+    // 一時ファイルリスト（クリーンアップ用）
+    private val temporaryFiles = mutableListOf<File>()
+
     /**
      * Contextを初期化
      *
@@ -111,6 +114,20 @@ class PlayerViewModel : ViewModel() {
     fun initialize(context: Context) {
         _context = context.applicationContext
         videoComposer = VideoComposer(context.applicationContext)
+        Log.d(TAG, "PlayerViewModel initialized")
+        logMemoryUsage()
+    }
+
+    /**
+     * メモリ使用量をログ出力
+     *
+     * Section_4B-1b-i参考: メモリ管理の監視
+     */
+    private fun logMemoryUsage() {
+        val runtime = Runtime.getRuntime()
+        val usedMemory = (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024
+        val maxMemory = runtime.maxMemory() / 1024 / 1024
+        Log.d(TAG, "[Memory] Usage: ${usedMemory}MB / ${maxMemory}MB")
     }
 
     /**
@@ -257,6 +274,11 @@ class PlayerViewModel : ViewModel() {
                 }
 
                 Log.d(TAG, "Composition created successfully")
+                logMemoryUsage()
+
+                // GCを促進してメモリを解放
+                System.gc()
+                Log.d(TAG, "[GC] Garbage collection triggered after composition creation")
 
                 // セグメント時間範囲を取得
                 segmentTimeRanges = composer.getSegmentTimeRanges(currentProject)
@@ -637,13 +659,39 @@ class PlayerViewModel : ViewModel() {
 
     /**
      * ViewModelが破棄される時にリソースを解放
+     *
+     * Section_4B-1b-i参考: すべてのリソースを確実に解放
      */
     override fun onCleared() {
         super.onCleared()
+        Log.d(TAG, "onCleared() - Cleaning up all resources")
+
+        // 1. ExoPlayerを解放
         _exoPlayer?.release()
         _exoPlayer = null
+        Log.d(TAG, "ExoPlayer released")
+
+        // 2. Compositionをクリア
         composition = null
         segmentTimeRanges = emptyList()
-        Log.d(TAG, "ViewModel cleared")
+        Log.d(TAG, "Composition cleared")
+
+        // 3. 一時ファイルを削除
+        temporaryFiles.forEach { file ->
+            if (file.exists()) {
+                file.delete()
+                Log.d(TAG, "Deleted temporary file: ${file.name}")
+            }
+        }
+        temporaryFiles.clear()
+        Log.d(TAG, "Temporary files cleaned up")
+
+        // 4. 参照をクリア
+        videoComposer = null
+        _context = null
+
+        // 5. GCを促進
+        System.gc()
+        Log.d(TAG, "ViewModel cleared successfully")
     }
 }

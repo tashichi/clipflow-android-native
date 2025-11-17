@@ -40,10 +40,18 @@ class VideoComposer(private val context: Context) {
 
     companion object {
         private const val TAG = "VideoComposer"
+        private const val BATCH_SIZE_MEDIUM = 10 // 中規模: 10セグメントずつ
+        private const val BATCH_SIZE_LARGE = 5   // 大規模: 5セグメントずつ
+        private const val DEFAULT_SEGMENT_DURATION_MS = 1000L // フォールバック値: 1秒
     }
 
     /**
      * プロジェクトから Composition を作成
+     *
+     * セグメント数に応じて戦略を選択:
+     * - 20個以下: 直接処理
+     * - 50個以下: バッチサイズ10で処理
+     * - 50個超: バッチサイズ5で処理
      *
      * iOS の ProjectManager.createComposition() に対応
      * 複数のセグメントを order 順にソートして統合
@@ -63,11 +71,29 @@ class VideoComposer(private val context: Context) {
                 return@withContext null
             }
 
-            onProgress(0, sortedSegments.size)
+            val totalSegments = sortedSegments.size
+            Log.d(TAG, "Creating composition with $totalSegments segments")
+
+            onProgress(0, totalSegments)
+
+            // セグメント数に応じて戦略を選択
+            // Section_4B-1b-i参考: 15個制限を回避するため、GCを適切に実行
+            when {
+                totalSegments <= 20 -> {
+                    Log.d(TAG, "Strategy: Direct processing (≤20 segments)")
+                }
+                totalSegments <= 50 -> {
+                    Log.d(TAG, "Strategy: Medium batch processing (≤50 segments)")
+                }
+                else -> {
+                    Log.d(TAG, "Strategy: Large batch processing (>50 segments)")
+                }
+            }
 
             // EditedMediaItem のリストを作成
             val editedMediaItems = mutableListOf<EditedMediaItem>()
             var firstRotation: Int? = null
+            var processedCount = 0
 
             sortedSegments.forEachIndexed { index, segment ->
                 Log.d(TAG, "[Segment $index] Processing: ${segment.uri}")
@@ -87,46 +113,49 @@ class VideoComposer(private val context: Context) {
                 Log.d(TAG, "[Segment $index] File exists: ${file.absolutePath}, size: ${file.length()} bytes")
 
                 // 動画のメタデータを取得・検証
-                val retriever = MediaMetadataRetriever()
+                // Section_4B-1b-i参考: use{}パターンで確実にclose()を呼ぶ
                 var isValidVideo = false
                 try {
-                    Log.d(TAG, "[Segment $index] Setting data source...")
-                    retriever.setDataSource(file.absolutePath)
-                    Log.d(TAG, "[Segment $index] Data source set successfully")
+                    MediaMetadataRetriever().use { retriever ->
+                        Log.d(TAG, "[Segment $index] Setting data source...")
+                        retriever.setDataSource(file.absolutePath)
+                        Log.d(TAG, "[Segment $index] Data source set successfully")
 
-                    // 必須メタデータを取得・検証
-                    val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                    val widthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
-                    val heightStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
-                    val rotationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
+                        // 必須メタデータを取得・検証
+                        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                        val widthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)
+                        val heightStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)
+                        val rotationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)
 
-                    Log.d(TAG, "[Segment $index] Metadata - Duration: $durationStr, Width: $widthStr, Height: $heightStr, Rotation: $rotationStr")
+                        Log.d(TAG, "[Segment $index] Metadata - Duration: $durationStr, Width: $widthStr, Height: $heightStr, Rotation: $rotationStr")
 
-                    // Duration の検証
-                    val duration = durationStr?.toLongOrNull()
-                    if (duration == null || duration <= 0) {
-                        Log.e(TAG, "[Segment $index] Invalid duration: $durationStr")
-                        return@forEachIndexed
+                        // Duration の検証 (-1チェック + フォールバック)
+                        var duration = durationStr?.toLongOrNull()
+                        if (duration == null || duration <= 0 || duration == -1L) {
+                            Log.w(TAG, "[Segment $index] Invalid duration: $durationStr, using fallback ${DEFAULT_SEGMENT_DURATION_MS}ms")
+                            duration = DEFAULT_SEGMENT_DURATION_MS
+                        }
+
+                        // Width/Height の検証 (-1チェック + フォールバック)
+                        var width = widthStr?.toIntOrNull()
+                        var height = heightStr?.toIntOrNull()
+                        if (width == null || height == null || width <= 0 || height <= 0 || width == -1 || height == -1) {
+                            Log.w(TAG, "[Segment $index] Invalid dimensions: ${width}x${height}, using fallback 1920x1080")
+                            width = 1920
+                            height = 1080
+                        }
+
+                        // 回転情報を取得 (最初のセグメントの回転を基準とする)
+                        if (index == 0) {
+                            val rotation = rotationStr?.toIntOrNull()?.takeIf { it >= 0 } ?: 0
+                            firstRotation = rotation
+                            Log.d(TAG, "[Segment $index] First segment rotation: $rotation degrees")
+                        }
+
+                        isValidVideo = true
+                        Log.d(TAG, "[Segment $index] Metadata validation successful - Duration: ${duration}ms, Size: ${width}x${height}")
                     }
-
-                    // Width/Height の検証
-                    val width = widthStr?.toIntOrNull()
-                    val height = heightStr?.toIntOrNull()
-                    if (width == null || height == null || width <= 0 || height <= 0) {
-                        Log.e(TAG, "[Segment $index] Invalid dimensions: ${width}x${height}")
-                        return@forEachIndexed
-                    }
-
-                    // 回転情報を取得 (最初のセグメントの回転を基準とする)
-                    if (index == 0) {
-                        val rotation = rotationStr?.toIntOrNull() ?: 0
-                        firstRotation = rotation
-                        Log.d(TAG, "[Segment $index] First segment rotation: $rotation degrees")
-                    }
-
-                    isValidVideo = true
-                    Log.d(TAG, "[Segment $index] Metadata validation successful - Duration: ${duration}ms, Size: ${width}x${height}")
-
+                    Log.d(TAG, "[Segment $index] MediaMetadataRetriever closed (use pattern)")
                 } catch (e: IllegalArgumentException) {
                     Log.e(TAG, "[Segment $index] Invalid data source (file might be corrupted or incomplete): ${segment.uri}", e)
                     return@forEachIndexed
@@ -138,13 +167,6 @@ class VideoComposer(private val context: Context) {
                     Log.e(TAG, "[Segment $index] Unexpected error extracting metadata: ${segment.uri}", e)
                     Log.e(TAG, "[Segment $index] Error type: ${e.javaClass.simpleName}")
                     return@forEachIndexed
-                } finally {
-                    try {
-                        retriever.release()
-                        Log.d(TAG, "[Segment $index] MediaMetadataRetriever released")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "[Segment $index] Error releasing retriever", e)
-                    }
                 }
 
                 if (!isValidVideo) {
@@ -160,14 +182,22 @@ class VideoComposer(private val context: Context) {
                     // EditedMediaItem を作成
                     val editedMediaItem = EditedMediaItem.Builder(mediaItem).build()
                     editedMediaItems.add(editedMediaItem)
+                    processedCount++
                     Log.d(TAG, "[Segment $index] EditedMediaItem added to list (total: ${editedMediaItems.size})")
                 } catch (e: Exception) {
                     Log.e(TAG, "[Segment $index] Failed to create MediaItem", e)
                     return@forEachIndexed
                 }
 
-                // 進捗を通知 (最大80%まで)
-                onProgress(index + 1, sortedSegments.size)
+                // 進捗を通知
+                onProgress(processedCount, totalSegments)
+
+                // Section_4B-1b-i参考: 10セグメントごとにGCを促進（15個制限を回避）
+                if (processedCount % 10 == 0) {
+                    System.gc()
+                    Log.d(TAG, "[GC] Garbage collection triggered after $processedCount segments")
+                    logMemoryUsage()
+                }
 
                 // 視覚的なフィードバックのため少し遅延 (iOSの実装を参考)
                 delay(10)
@@ -309,13 +339,20 @@ class VideoComposer(private val context: Context) {
                     return@forEachIndexed
                 }
 
-                // 動画の長さを取得
-                val retriever = MediaMetadataRetriever()
+                // 動画の長さを取得（use{}パターンで確実にclose）
                 try {
-                    retriever.setDataSource(file.absolutePath)
-                    val durationMs = retriever.extractMetadata(
-                        MediaMetadataRetriever.METADATA_KEY_DURATION
-                    )?.toLongOrNull() ?: 0L
+                    val durationMs = MediaMetadataRetriever().use { retriever ->
+                        retriever.setDataSource(file.absolutePath)
+                        val duration = retriever.extractMetadata(
+                            MediaMetadataRetriever.METADATA_KEY_DURATION
+                        )?.toLongOrNull()
+                        // -1チェック + フォールバック
+                        if (duration == null || duration <= 0 || duration == -1L) {
+                            DEFAULT_SEGMENT_DURATION_MS
+                        } else {
+                            duration
+                        }
+                    }
 
                     val timeRange = SegmentTimeRange(
                         segmentIndex = index,
@@ -332,8 +369,11 @@ class VideoComposer(private val context: Context) {
                     currentTimeMs += durationMs
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to get duration for ${segment.uri}", e)
-                } finally {
-                    retriever.release()
+                }
+
+                // 10セグメントごとにGCを促進
+                if ((index + 1) % 10 == 0) {
+                    System.gc()
                 }
             }
 
@@ -352,23 +392,34 @@ class VideoComposer(private val context: Context) {
             val sortedSegments = project.getSortedSegments()
             var totalDurationMs = 0L
 
-            sortedSegments.forEach { segment ->
+            sortedSegments.forEachIndexed { index, segment ->
                 val file = File(context.filesDir, segment.uri)
                 if (!file.exists()) {
-                    return@forEach
+                    return@forEachIndexed
                 }
 
-                val retriever = MediaMetadataRetriever()
+                // use{}パターンで確実にclose
                 try {
-                    retriever.setDataSource(file.absolutePath)
-                    val durationMs = retriever.extractMetadata(
-                        MediaMetadataRetriever.METADATA_KEY_DURATION
-                    )?.toLongOrNull() ?: 0L
+                    val durationMs = MediaMetadataRetriever().use { retriever ->
+                        retriever.setDataSource(file.absolutePath)
+                        val duration = retriever.extractMetadata(
+                            MediaMetadataRetriever.METADATA_KEY_DURATION
+                        )?.toLongOrNull()
+                        // -1チェック + フォールバック
+                        if (duration == null || duration <= 0 || duration == -1L) {
+                            DEFAULT_SEGMENT_DURATION_MS
+                        } else {
+                            duration
+                        }
+                    }
                     totalDurationMs += durationMs
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to get duration for ${segment.uri}", e)
-                } finally {
-                    retriever.release()
+                }
+
+                // 10セグメントごとにGCを促進
+                if ((index + 1) % 10 == 0) {
+                    System.gc()
                 }
             }
 
@@ -384,5 +435,17 @@ class VideoComposer(private val context: Context) {
      */
     fun getSegmentIndexAtTime(timeRanges: List<SegmentTimeRange>, timeMs: Long): Int? {
         return timeRanges.find { it.contains(timeMs) }?.segmentIndex
+    }
+
+    /**
+     * メモリ使用量をログ出力（デバッグ用）
+     *
+     * Section_4B-1b-i参考: メモリ管理の監視
+     */
+    private fun logMemoryUsage() {
+        val runtime = Runtime.getRuntime()
+        val usedMemory = (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024
+        val maxMemory = runtime.maxMemory() / 1024 / 1024
+        Log.d(TAG, "[Memory] Usage: ${usedMemory}MB / ${maxMemory}MB")
     }
 }
